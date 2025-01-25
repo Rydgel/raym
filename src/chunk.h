@@ -3,7 +3,7 @@
 
 #include "raylib.h"
 
-#define CHUNK_SIZE 16
+#define CHUNK_SIZE 64
 #define VOXEL_SIZE 1.0f
 
 typedef struct

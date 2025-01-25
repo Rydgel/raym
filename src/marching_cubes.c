@@ -469,5 +469,8 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
   // Upload mesh to GPU
   UploadMesh(&mesh, false);
 
+  // Generate tangents for the mesh
+  GenMeshTangents(&mesh);
+
   return mesh;
 }
