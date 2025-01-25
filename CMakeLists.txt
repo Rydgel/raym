@@ -30,6 +30,7 @@ set(SOURCES
 set(HEADERS
     src/chunk.h
     src/marching_cubes.h
+    src/perlin.h
 )
 
 # Create executable
