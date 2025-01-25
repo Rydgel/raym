@@ -308,8 +308,6 @@ int main(void)
   SetShaderValue(material.shader, GetShaderLocation(material.shader, "lightColor"), (float[3]){1.0f, 1.0f, 1.0f}, SHADER_UNIFORM_VEC3);
   SetShaderValue(material.shader, GetShaderLocation(material.shader, "lightPos"), (float[3]){50.0f, 50.0f, 50.0f}, SHADER_UNIFORM_VEC3);
 
-  SetTargetFPS(60);
-
   // Main game loop
   while (!WindowShouldClose())
   {
