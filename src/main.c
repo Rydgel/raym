@@ -3,194 +3,23 @@
 #include "rlgl.h"
 #include "chunk.h"
 #include "marching_cubes.h"
+#include "terrain.h"
+#include "render.h"
 #include <stdlib.h>
 #include <math.h>
-
-#define CHUNKS_X 4
-#define CHUNKS_Z 4
 
 // Add color gradient settings
 #define LOW_HEIGHT -15.0f
 #define HIGH_HEIGHT 15.0f
-#define EDIT_RADIUS 3.0f // Reduced from 3.0f for better performance
-#define EDIT_STRENGTH 0.5f
+#define EDIT_RADIUS 15.0f
+#define EDIT_STRENGTH 1.0f
 #define RAY_STEP 0.1f
 #define MAX_RAY_DISTANCE 100.0f
 #define CROSSHAIR_SIZE 10
 #define CROSSHAIR_THICKNESS 2
-#define MESH_UPDATE_DELAY 0.1f // Increased from 0.1f for better performance
+#define MESH_UPDATE_DELAY 0.01f
 
-typedef struct
-{
-  Chunk chunk;
-  Mesh mesh;
-  bool initialized;
-  bool needsUpdate;  // Flag to track if mesh needs regeneration
-  float updateTimer; // Timer for delayed mesh updates
-  float minHeight;   // Track height range for this chunk
-  float maxHeight;
-} ChunkData;
-
-ChunkData chunks[CHUNKS_X][CHUNKS_Z];
-
-// Helper function to get world position
-static Vector3 GetWorldPosition(int chunkX, int chunkZ, int vx, int vy, int vz)
-{
-  return (Vector3){
-      (chunkX * (CHUNK_SIZE - 1) + vx) - ((CHUNKS_X * (CHUNK_SIZE - 1)) / 2.0f),
-      (float)vy - CHUNK_SIZE / 2.0f,
-      (chunkZ * (CHUNK_SIZE - 1) + vz) - ((CHUNKS_Z * (CHUNK_SIZE - 1)) / 2.0f)};
-}
-
-// Helper function to get chunk coordinates from world position
-static bool GetChunkCoords(Vector3 worldPos, int *chunkX, int *chunkZ, int *vx, int *vy, int *vz)
-{
-  // Offset position to make (0,0,0) be at the center of the world
-  float offsetX = worldPos.x + ((CHUNKS_X * (CHUNK_SIZE - 1)) / 2.0f);
-  float offsetZ = worldPos.z + ((CHUNKS_Z * (CHUNK_SIZE - 1)) / 2.0f);
-  float offsetY = worldPos.y + CHUNK_SIZE / 2.0f;
-
-  // Calculate chunk coordinates
-  *chunkX = (int)(offsetX / (CHUNK_SIZE - 1));
-  *chunkZ = (int)(offsetZ / (CHUNK_SIZE - 1));
-
-  // Calculate voxel coordinates within chunk
-  *vx = (int)(offsetX) % (CHUNK_SIZE - 1);
-  *vy = (int)(offsetY);
-  *vz = (int)(offsetZ) % (CHUNK_SIZE - 1);
-
-  // Check if coordinates are within bounds
-  if (*chunkX < 0 || *chunkX >= CHUNKS_X || *chunkZ < 0 || *chunkZ >= CHUNKS_Z ||
-      *vy < 0 || *vy >= CHUNK_SIZE)
-  {
-    return false;
-  }
-
-  // Handle negative coordinates
-  if (*vx < 0)
-    *vx += CHUNK_SIZE - 1;
-  if (*vz < 0)
-    *vz += CHUNK_SIZE - 1;
-
-  return true;
-}
-
-// Function to modify terrain (optimized)
-static void ModifyTerrain(Vector3 position, float radius, float strength)
-{
-  // Calculate affected chunk range
-  int minChunkX = (int)((position.x - radius + ((CHUNKS_X * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
-  int maxChunkX = (int)((position.x + radius + ((CHUNKS_X * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
-  int minChunkZ = (int)((position.z - radius + ((CHUNKS_Z * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
-  int maxChunkZ = (int)((position.z + radius + ((CHUNKS_Z * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
-
-  // Clamp to valid chunk range
-  minChunkX = minChunkX < 0 ? 0 : minChunkX;
-  maxChunkX = maxChunkX >= CHUNKS_X ? CHUNKS_X - 1 : maxChunkX;
-  minChunkZ = minChunkZ < 0 ? 0 : minChunkZ;
-  maxChunkZ = maxChunkZ >= CHUNKS_Z ? CHUNKS_Z - 1 : maxChunkZ;
-
-  float radiusSq = radius * radius;
-
-  // Only iterate over chunks that could be affected
-  for (int cx = minChunkX; cx <= maxChunkX; cx++)
-  {
-    for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-    {
-      bool chunkModified = false;
-      Vector3 chunkPos = chunks[cx][cz].chunk.position;
-
-      // Convert world position to local chunk space
-      Vector3 localPos = {
-          position.x - chunkPos.x,
-          position.y - chunkPos.y,
-          position.z - chunkPos.z};
-
-      // Calculate affected voxel range within chunk
-      int minX = (int)((localPos.x - radius) / VOXEL_SIZE);
-      int maxX = (int)((localPos.x + radius) / VOXEL_SIZE) + 1;
-      int minY = (int)((localPos.y - radius) / VOXEL_SIZE);
-      int maxY = (int)((localPos.y + radius) / VOXEL_SIZE) + 1;
-      int minZ = (int)((localPos.z - radius) / VOXEL_SIZE);
-      int maxZ = (int)((localPos.z + radius) / VOXEL_SIZE) + 1;
-
-      // Clamp to chunk bounds
-      minX = minX < 0 ? 0 : minX;
-      maxX = maxX >= CHUNK_SIZE ? CHUNK_SIZE - 1 : maxX;
-      minY = minY < 0 ? 0 : minY;
-      maxY = maxY >= CHUNK_SIZE ? CHUNK_SIZE - 1 : maxY;
-      minZ = minZ < 0 ? 0 : minZ;
-      maxZ = maxZ >= CHUNK_SIZE ? CHUNK_SIZE - 1 : maxZ;
-
-      // Only check voxels within the calculated range
-      for (int x = minX; x <= maxX; x++)
-      {
-        for (int y = minY; y <= maxY; y++)
-        {
-          for (int z = minZ; z <= maxZ; z++)
-          {
-            // Convert voxel position to world space for distance check
-            Vector3 voxelPos = {
-                chunkPos.x + x * VOXEL_SIZE,
-                chunkPos.y + y * VOXEL_SIZE,
-                chunkPos.z + z * VOXEL_SIZE};
-
-            float distSq = Vector3DistanceSqr(position, voxelPos);
-
-            if (distSq <= radiusSq)
-            {
-              float influence = (1.0f - sqrtf(distSq) / radius) * strength;
-              chunks[cx][cz].chunk.voxels[x][y][z].density += influence;
-              chunkModified = true;
-            }
-          }
-        }
-      }
-
-      if (chunkModified)
-      {
-        chunks[cx][cz].needsUpdate = true;
-      }
-    }
-  }
-}
-
-// Function to check if a point is inside terrain
-static bool IsInsideTerrain(Vector3 pos)
-{
-  int chunkX, chunkZ, vx, vy, vz;
-  if (GetChunkCoords(pos, &chunkX, &chunkZ, &vx, &vy, &vz))
-  {
-    return chunks[chunkX][chunkZ].chunk.voxels[vx][vy][vz].density <= 0.0f;
-  }
-  return false;
-}
-
-// Function to get density at any world position
-static float GetDensityAtPosition(Vector3 pos)
-{
-  int chunkX, chunkZ, vx, vy, vz;
-  if (GetChunkCoords(pos, &chunkX, &chunkZ, &vx, &vy, &vz))
-  {
-    return chunks[chunkX][chunkZ].chunk.voxels[vx][vy][vz].density;
-  }
-  return 1000.0f; // Return high density for out of bounds
-}
-
-// Function to draw crosshair
-static void DrawCrosshair(int screenWidth, int screenHeight, Color color)
-{
-  int centerX = screenWidth / 2;
-  int centerY = screenHeight / 2;
-
-  // Draw horizontal line
-  DrawRectangle(centerX - CROSSHAIR_SIZE, centerY - CROSSHAIR_THICKNESS / 2,
-                CROSSHAIR_SIZE * 2, CROSSHAIR_THICKNESS, color);
-
-  // Draw vertical line
-  DrawRectangle(centerX - CROSSHAIR_THICKNESS / 2, centerY - CROSSHAIR_SIZE,
-                CROSSHAIR_THICKNESS, CROSSHAIR_SIZE * 2, color);
-}
+extern ChunkData chunks[CHUNKS_X][CHUNKS_Z];
 
 int main(void)
 {

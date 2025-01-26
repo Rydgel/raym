@@ -23,6 +23,8 @@ FetchContent_MakeAvailable(raylib)
 # Add source files
 set(SOURCES 
     src/main.c
+    src/terrain.c
+    src/render.c
     src/marching_cubes.c
 )
 
@@ -38,6 +40,9 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
 # Link raylib
 target_link_libraries(${PROJECT_NAME} raylib)
+
+# Include directories
+target_include_directories(${PROJECT_NAME} PRIVATE src)
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -5,6 +5,8 @@
 
 #define CHUNK_SIZE 64
 #define VOXEL_SIZE 1.0f
+#define CHUNKS_X 4
+#define CHUNKS_Z 4
 
 typedef struct
 {
@@ -13,8 +15,19 @@ typedef struct
 
 typedef struct
 {
-  Voxel voxels[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
   Vector3 position;
+  Voxel voxels[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
 } Chunk;
+
+typedef struct
+{
+  Chunk chunk;
+  Mesh mesh;
+  bool initialized;
+  bool needsUpdate;
+  float updateTimer;
+  float minHeight;
+  float maxHeight;
+} ChunkData;
 
 #endif // CHUNK_H
