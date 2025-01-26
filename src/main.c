@@ -98,13 +98,19 @@ static void ModifyTerrain(Vector3 position, float radius, float strength)
       bool chunkModified = false;
       Vector3 chunkPos = chunks[cx][cz].chunk.position;
 
+      // Convert world position to local chunk space
+      Vector3 localPos = {
+          position.x - chunkPos.x,
+          position.y - chunkPos.y,
+          position.z - chunkPos.z};
+
       // Calculate affected voxel range within chunk
-      int minX = (int)((position.x - radius - chunkPos.x) / VOXEL_SIZE);
-      int maxX = (int)((position.x + radius - chunkPos.x) / VOXEL_SIZE) + 1;
-      int minY = (int)((position.y - radius + CHUNK_SIZE / 2) / VOXEL_SIZE);
-      int maxY = (int)((position.y + radius + CHUNK_SIZE / 2) / VOXEL_SIZE) + 1;
-      int minZ = (int)((position.z - radius - chunkPos.z) / VOXEL_SIZE);
-      int maxZ = (int)((position.z + radius - chunkPos.z) / VOXEL_SIZE) + 1;
+      int minX = (int)((localPos.x - radius) / VOXEL_SIZE);
+      int maxX = (int)((localPos.x + radius) / VOXEL_SIZE) + 1;
+      int minY = (int)((localPos.y - radius) / VOXEL_SIZE);
+      int maxY = (int)((localPos.y + radius) / VOXEL_SIZE) + 1;
+      int minZ = (int)((localPos.z - radius) / VOXEL_SIZE);
+      int maxZ = (int)((localPos.z + radius) / VOXEL_SIZE) + 1;
 
       // Clamp to chunk bounds
       minX = minX < 0 ? 0 : minX;
@@ -121,7 +127,12 @@ static void ModifyTerrain(Vector3 position, float radius, float strength)
         {
           for (int z = minZ; z <= maxZ; z++)
           {
-            Vector3 voxelPos = GetWorldPosition(cx, cz, x, y, z);
+            // Convert voxel position to world space for distance check
+            Vector3 voxelPos = {
+                chunkPos.x + x * VOXEL_SIZE,
+                chunkPos.y + y * VOXEL_SIZE,
+                chunkPos.z + z * VOXEL_SIZE};
+
             float distSq = Vector3DistanceSqr(position, voxelPos);
 
             if (distSq <= radiusSq)
@@ -184,6 +195,9 @@ int main(void)
   // Window dimensions
   const int screenWidth = 800;
   const int screenHeight = 600;
+
+  // Set logging level to see debug messages
+  SetTraceLogLevel(LOG_INFO);
 
   // Initialize window
   InitWindow(screenWidth, screenHeight, "Marching Cubes Demo");
@@ -334,57 +348,39 @@ int main(void)
 
       Vector3 hitPoint = {0};
       bool hit = false;
+      float nearestDistance = MAX_RAY_DISTANCE;
 
-      // Binary search refinement after initial hit
-      float tMin = 0.01f; // Changed from 0.1f to start closer to camera
-      float tMax = MAX_RAY_DISTANCE;
-      float currentT = tMin;
-
-      // First pass: larger steps to find approximate hit
-      while (currentT < tMax && !hit)
+      // Check collision with each chunk's mesh
+      for (int x = 0; x < CHUNKS_X; x++)
       {
-        Vector3 pos = Vector3Add(ray.position, Vector3Scale(ray.direction, currentT));
-        float density = GetDensityAtPosition(pos);
-
-        if (density <= 0.0f) // We've hit the surface
+        for (int z = 0; z < CHUNKS_Z; z++)
         {
-          hit = true;
-          // Binary search refinement with more steps
-          float low = currentT - RAY_STEP;
-          float high = currentT;
-          for (int i = 0; i < 10; i++) // Increased from 8 to 10 refinement steps
-          {
-            float mid = (low + high) / 2.0f;
-            pos = Vector3Add(ray.position, Vector3Scale(ray.direction, mid));
-            density = GetDensityAtPosition(pos);
+          if (!chunks[x][z].initialized)
+            continue;
 
-            if (density <= 0.0f)
-              high = mid;
-            else
-              low = mid;
+          // Create transform matrix for the chunk
+          Matrix transform = MatrixTranslate(
+              chunks[x][z].chunk.position.x,
+              chunks[x][z].chunk.position.y,
+              chunks[x][z].chunk.position.z);
+
+          // Check collision with chunk mesh
+          RayCollision collision = GetRayCollisionMesh(ray, chunks[x][z].mesh, transform);
+
+          if (collision.hit && collision.distance < nearestDistance)
+          {
+            hit = true;
+            nearestDistance = collision.distance;
+            hitPoint = collision.point;
           }
-          hitPoint = Vector3Add(ray.position, Vector3Scale(ray.direction, high)); // Use high instead of average
-          break;
         }
-        currentT += RAY_STEP;
       }
 
       if (hit)
       {
         float strength = IsMouseButtonDown(MOUSE_BUTTON_LEFT) ? -EDIT_STRENGTH : EDIT_STRENGTH;
         ModifyTerrain(hitPoint, EDIT_RADIUS, strength);
-
-        // Debug visualization of hit point
-        DrawSphere(hitPoint, 0.2f, RED);
       }
-
-      // Debug visualization of ray in front of and behind camera
-      DrawLine3D(Vector3Add(ray.position, Vector3Scale(ray.direction, -10.0f)),
-                 Vector3Add(ray.position, Vector3Scale(ray.direction, 10.0f)),
-                 YELLOW);
-
-      // Debug visualization of camera position
-      DrawSphere(camera.position, 0.2f, GREEN);
     }
 
     // Update meshes for modified chunks
@@ -428,6 +424,47 @@ int main(void)
               chunks[x][z].chunk.position.z);
           DrawMesh(chunks[x][z].mesh, material, transform);
         }
+      }
+    }
+
+    // Handle terrain modification
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+    {
+      Vector2 screenCenter = {screenWidth / 2.0f, screenHeight / 2.0f};
+      Ray ray = GetScreenToWorldRay(screenCenter, camera);
+
+      Vector3 hitPoint = {0};
+      bool hit = false;
+      float nearestDistance = MAX_RAY_DISTANCE;
+
+      // Check collision with each chunk's mesh
+      for (int x = 0; x < CHUNKS_X; x++)
+      {
+        for (int z = 0; z < CHUNKS_Z; z++)
+        {
+          if (!chunks[x][z].initialized)
+            continue;
+
+          Matrix transform = MatrixTranslate(
+              chunks[x][z].chunk.position.x,
+              chunks[x][z].chunk.position.y,
+              chunks[x][z].chunk.position.z);
+
+          RayCollision collision = GetRayCollisionMesh(ray, chunks[x][z].mesh, transform);
+
+          if (collision.hit && collision.distance < nearestDistance)
+          {
+            hit = true;
+            nearestDistance = collision.distance;
+            hitPoint = collision.point;
+          }
+        }
+      }
+
+      if (hit)
+      {
+        float strength = IsMouseButtonDown(MOUSE_BUTTON_LEFT) ? -EDIT_STRENGTH : EDIT_STRENGTH;
+        ModifyTerrain(hitPoint, EDIT_RADIUS, strength);
       }
     }
 

@@ -52,7 +52,7 @@ static const int triTable[256][16] =
      {0, 11, 2, 8, 11, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {1, 9, 0, 2, 3, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {1, 11, 2, 1, 9, 11, 9, 8, 11, -1, -1, -1, -1, -1, -1, -1},
-     {3, 10, 1, 11, 10, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {3, 10, 1, 3, 11, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {0, 10, 1, 0, 8, 10, 8, 11, 10, -1, -1, -1, -1, -1, -1, -1},
      {3, 9, 0, 3, 11, 9, 11, 10, 9, -1, -1, -1, -1, -1, -1, -1},
      {9, 8, 10, 10, 8, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
@@ -155,7 +155,7 @@ static const int triTable[256][16] =
      {7, 10, 6, 7, 8, 10, 8, 9, 10, -1, -1, -1, -1, -1, -1, -1},
      {0, 7, 3, 0, 10, 7, 0, 9, 10, 6, 7, 10, -1, -1, -1, -1},
      {10, 6, 7, 1, 10, 7, 1, 7, 8, 1, 8, 0, -1, -1, -1, -1},
-     {10, 6, 7, 10, 7, 1, 1, 7, 3, -1, -1, -1, -1, -1, -1, -1},
+     {10, 6, 7, 1, 7, 10, 1, 8, 7, 1, 0, 8, -1, -1, -1, -1},
      {1, 2, 6, 1, 6, 8, 1, 8, 9, 8, 6, 7, -1, -1, -1, -1},
      {2, 6, 9, 2, 9, 1, 6, 7, 9, 0, 9, 3, 7, 3, 9, -1},
      {7, 8, 0, 7, 0, 6, 6, 0, 2, -1, -1, -1, -1, -1, -1, -1},
@@ -255,15 +255,15 @@ static const int triTable[256][16] =
      {2, 5, 1, 2, 8, 5, 2, 11, 8, 4, 5, 8, -1, -1, -1, -1},
      {0, 4, 11, 0, 11, 3, 4, 5, 11, 2, 11, 1, 5, 1, 11, -1},
      {0, 2, 5, 0, 5, 9, 2, 11, 5, 4, 5, 8, 11, 8, 5, -1},
-     {9, 4, 5, 2, 11, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {9, 4, 5, 2, 11, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {2, 5, 10, 3, 5, 2, 3, 4, 5, 3, 8, 4, -1, -1, -1, -1},
      {5, 10, 2, 5, 2, 4, 4, 2, 0, -1, -1, -1, -1, -1, -1, -1},
-     {3, 10, 2, 3, 5, 10, 3, 8, 5, 4, 5, 8, 0, 1, 9, -1},
-     {5, 10, 2, 5, 2, 4, 1, 9, 2, 9, 4, 2, -1, -1, -1, -1},
-     {8, 4, 5, 8, 5, 3, 3, 5, 1, -1, -1, -1, -1, -1, -1, -1},
-     {0, 4, 5, 1, 0, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-     {8, 4, 5, 8, 5, 3, 9, 0, 5, 0, 3, 5, -1, -1, -1, -1},
-     {9, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {3, 10, 2, 3, 5, 10, 3, 8, 5, 4, 5, 8, 0, 1, 9, 8, -1},
+     {5, 10, 2, 5, 2, 4, 1, 9, 2, 9, 4, 2, -1, -1, -1, -1, -1},
+     {8, 4, 5, 8, 5, 3, 3, 5, 1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {0, 4, 5, 1, 0, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {8, 4, 5, 8, 5, 3, 9, 0, 5, 0, 3, 5, -1, -1, -1, -1, -1},
+     {9, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {4, 11, 7, 4, 9, 11, 9, 10, 11, -1, -1, -1, -1, -1, -1, -1},
      {0, 8, 3, 4, 9, 7, 9, 11, 7, 9, 10, 11, -1, -1, -1, -1},
      {1, 10, 11, 1, 11, 4, 1, 4, 0, 7, 4, 11, -1, -1, -1, -1},
@@ -275,11 +275,11 @@ static const int triTable[256][16] =
      {2, 9, 10, 2, 7, 9, 2, 3, 7, 7, 4, 9, -1, -1, -1, -1},
      {9, 10, 7, 9, 7, 4, 10, 2, 7, 8, 7, 0, 2, 0, 7, -1},
      {3, 7, 10, 3, 10, 2, 7, 4, 10, 1, 10, 0, 4, 0, 10, -1},
-     {1, 10, 2, 8, 7, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {1, 10, 2, 8, 7, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {4, 9, 1, 4, 1, 7, 7, 1, 3, -1, -1, -1, -1, -1, -1, -1},
      {4, 9, 1, 4, 1, 7, 0, 8, 1, 8, 7, 1, -1, -1, -1, -1},
      {4, 0, 3, 7, 4, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-     {4, 8, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+     {4, 8, 7, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {9, 10, 8, 10, 11, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
      {3, 0, 9, 3, 9, 11, 11, 9, 10, -1, -1, -1, -1, -1, -1, -1},
      {0, 1, 10, 0, 10, 8, 8, 10, 11, -1, -1, -1, -1, -1, -1, -1},
@@ -410,7 +410,7 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
         cornerValues[6] = chunk->voxels[x + 1][y + 1][z + 1].density;
         cornerValues[7] = chunk->voxels[x][y + 1][z + 1].density;
 
-        // Set corner positions
+        // Set corner positions in local chunk space
         cornerPositions[0] = (Vector3){x * VOXEL_SIZE, y * VOXEL_SIZE, z * VOXEL_SIZE};
         cornerPositions[1] = (Vector3){(x + 1) * VOXEL_SIZE, y * VOXEL_SIZE, z * VOXEL_SIZE};
         cornerPositions[2] = (Vector3){(x + 1) * VOXEL_SIZE, y * VOXEL_SIZE, (z + 1) * VOXEL_SIZE};
@@ -437,12 +437,29 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
   mesh.vertices = (float *)RL_MALLOC(mesh.vertexCount * 3 * sizeof(float));
   for (int i = 0; i < mesh.vertexCount; i++)
   {
+    // Store vertices in local chunk space
     mesh.vertices[i * 3] = triangles[i].x;
     mesh.vertices[i * 3 + 1] = triangles[i].y;
     mesh.vertices[i * 3 + 2] = triangles[i].z;
   }
 
-  // Set normals (simplified - just use triangle normals)
+  // Set indices for triangle faces
+  mesh.indices = (unsigned short *)RL_MALLOC(mesh.vertexCount * sizeof(unsigned short));
+  for (int i = 0; i < mesh.vertexCount; i++)
+  {
+    mesh.indices[i] = i;
+  }
+
+  // Set texture coordinates
+  mesh.texcoords = (float *)RL_MALLOC(mesh.vertexCount * 2 * sizeof(float));
+  for (int i = 0; i < mesh.vertexCount; i++)
+  {
+    // Project vertices onto XZ plane for texture coordinates
+    mesh.texcoords[i * 2] = triangles[i].x * 0.1f;     // U coordinate
+    mesh.texcoords[i * 2 + 1] = triangles[i].z * 0.1f; // V coordinate
+  }
+
+  // Set normals
   mesh.normals = (float *)RL_MALLOC(mesh.vertexCount * 3 * sizeof(float));
   for (int i = 0; i < totalTriangles; i++)
   {
@@ -468,9 +485,6 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
 
   // Upload mesh to GPU
   UploadMesh(&mesh, false);
-
-  // Generate tangents for the mesh
-  GenMeshTangents(&mesh);
 
   return mesh;
 }
