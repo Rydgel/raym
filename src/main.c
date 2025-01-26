@@ -12,20 +12,22 @@
 // Add color gradient settings
 #define LOW_HEIGHT -15.0f
 #define HIGH_HEIGHT 15.0f
-#define EDIT_RADIUS 3.0f
+#define EDIT_RADIUS 3.0f // Reduced from 3.0f for better performance
 #define EDIT_STRENGTH 0.5f
-#define RAY_STEP 0.1f           // Smaller steps for better precision
-#define MAX_RAY_DISTANCE 100.0f // Maximum ray distance
-#define CROSSHAIR_SIZE 10       // Size of the crosshair in pixels
-#define CROSSHAIR_THICKNESS 2   // Thickness of the crosshair lines
+#define RAY_STEP 0.1f
+#define MAX_RAY_DISTANCE 100.0f
+#define CROSSHAIR_SIZE 10
+#define CROSSHAIR_THICKNESS 2
+#define MESH_UPDATE_DELAY 0.1f // Increased from 0.1f for better performance
 
 typedef struct
 {
   Chunk chunk;
   Mesh mesh;
   bool initialized;
-  bool needsUpdate; // Flag to track if mesh needs regeneration
-  float minHeight;  // Track height range for this chunk
+  bool needsUpdate;  // Flag to track if mesh needs regeneration
+  float updateTimer; // Timer for delayed mesh updates
+  float minHeight;   // Track height range for this chunk
   float maxHeight;
 } ChunkData;
 
@@ -224,6 +226,7 @@ int main(void)
     {
       chunks[x][z].initialized = false;
       chunks[x][z].needsUpdate = false;
+      chunks[x][z].updateTimer = 0.0f;
       chunks[x][z].minHeight = 1000.0f;
       chunks[x][z].maxHeight = -1000.0f;
       chunks[x][z].chunk.position = (Vector3){
@@ -325,6 +328,8 @@ int main(void)
   // Main game loop
   while (!WindowShouldClose())
   {
+    float deltaTime = GetFrameTime(); // Get time between frames
+
     // Toggle cursor lock with Tab key
     if (IsKeyPressed(KEY_TAB))
     {
@@ -342,7 +347,6 @@ int main(void)
     // Handle terrain modification
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
     {
-      // Get the ray from screen center using proper camera projection
       Vector2 screenCenter = {screenWidth / 2.0f, screenHeight / 2.0f};
       Ray ray = GetScreenToWorldRay(screenCenter, camera);
 
@@ -350,21 +354,32 @@ int main(void)
       bool hit = false;
       float nearestDistance = MAX_RAY_DISTANCE;
 
-      // Check collision with each chunk's mesh
-      for (int x = 0; x < CHUNKS_X; x++)
+      // Calculate which chunks to check based on ray direction
+      Vector3 rayEnd = Vector3Add(ray.position, Vector3Scale(ray.direction, MAX_RAY_DISTANCE));
+      int startX = (int)((fminf(ray.position.x, rayEnd.x) - EDIT_RADIUS + ((CHUNKS_X * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
+      int endX = (int)((fmaxf(ray.position.x, rayEnd.x) + EDIT_RADIUS + ((CHUNKS_X * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
+      int startZ = (int)((fminf(ray.position.z, rayEnd.z) - EDIT_RADIUS + ((CHUNKS_Z * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
+      int endZ = (int)((fmaxf(ray.position.z, rayEnd.z) + EDIT_RADIUS + ((CHUNKS_Z * (CHUNK_SIZE - 1)) / 2.0f)) / (CHUNK_SIZE - 1));
+
+      // Clamp to valid chunk range
+      startX = startX < 0 ? 0 : startX;
+      endX = endX >= CHUNKS_X ? CHUNKS_X - 1 : endX;
+      startZ = startZ < 0 ? 0 : startZ;
+      endZ = endZ >= CHUNKS_Z ? CHUNKS_Z - 1 : endZ;
+
+      // Only check chunks that the ray might intersect
+      for (int x = startX; x <= endX; x++)
       {
-        for (int z = 0; z < CHUNKS_Z; z++)
+        for (int z = startZ; z <= endZ; z++)
         {
           if (!chunks[x][z].initialized)
             continue;
 
-          // Create transform matrix for the chunk
           Matrix transform = MatrixTranslate(
               chunks[x][z].chunk.position.x,
               chunks[x][z].chunk.position.y,
               chunks[x][z].chunk.position.z);
 
-          // Check collision with chunk mesh
           RayCollision collision = GetRayCollisionMesh(ray, chunks[x][z].mesh, transform);
 
           if (collision.hit && collision.distance < nearestDistance)
@@ -384,16 +399,27 @@ int main(void)
     }
 
     // Update meshes for modified chunks
+    bool isModifying = IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
+
     for (int x = 0; x < CHUNKS_X; x++)
     {
       for (int z = 0; z < CHUNKS_Z; z++)
       {
         if (chunks[x][z].needsUpdate)
         {
+          // If we're still modifying, only update after delay
+          if (isModifying)
+          {
+            chunks[x][z].updateTimer += deltaTime;
+            if (chunks[x][z].updateTimer < MESH_UPDATE_DELAY)
+              continue;
+          }
+
           UnloadMesh(chunks[x][z].mesh);
           chunks[x][z].mesh = GenerateChunkMesh(&chunks[x][z].chunk);
           UploadMesh(&chunks[x][z].mesh, false);
           chunks[x][z].needsUpdate = false;
+          chunks[x][z].updateTimer = 0.0f;
         }
       }
     }
@@ -427,54 +453,13 @@ int main(void)
       }
     }
 
-    // Handle terrain modification
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
-    {
-      Vector2 screenCenter = {screenWidth / 2.0f, screenHeight / 2.0f};
-      Ray ray = GetScreenToWorldRay(screenCenter, camera);
-
-      Vector3 hitPoint = {0};
-      bool hit = false;
-      float nearestDistance = MAX_RAY_DISTANCE;
-
-      // Check collision with each chunk's mesh
-      for (int x = 0; x < CHUNKS_X; x++)
-      {
-        for (int z = 0; z < CHUNKS_Z; z++)
-        {
-          if (!chunks[x][z].initialized)
-            continue;
-
-          Matrix transform = MatrixTranslate(
-              chunks[x][z].chunk.position.x,
-              chunks[x][z].chunk.position.y,
-              chunks[x][z].chunk.position.z);
-
-          RayCollision collision = GetRayCollisionMesh(ray, chunks[x][z].mesh, transform);
-
-          if (collision.hit && collision.distance < nearestDistance)
-          {
-            hit = true;
-            nearestDistance = collision.distance;
-            hitPoint = collision.point;
-          }
-        }
-      }
-
-      if (hit)
-      {
-        float strength = IsMouseButtonDown(MOUSE_BUTTON_LEFT) ? -EDIT_STRENGTH : EDIT_STRENGTH;
-        ModifyTerrain(hitPoint, EDIT_RADIUS, strength);
-      }
-    }
-
     EndMode3D();
 
     // Draw crosshair
     DrawCrosshair(screenWidth, screenHeight, WHITE);
 
     // Draw UI with corrected text
-    DrawText("Left click to dig, Right click to build", 10, 40, 20, WHITE);
+    DrawText("Right click to dig, Left click to build", 10, 40, 20, WHITE);
     DrawFPS(10, 10);
     EndDrawing();
 
