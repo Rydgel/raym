@@ -53,6 +53,9 @@ int main(void)
   // Initialize render context with SSAO
   RenderContext renderContext = InitializeRenderContext(screenWidth, screenHeight);
 
+  // Initialize water
+  InitializeWaterMesh(&renderContext);
+
   // Material setup (simplified as most settings moved to RenderContext)
   Material material = LoadMaterialDefault();
   material.shader = renderContext.lightingShader; // Use the shader from render context
@@ -290,19 +293,21 @@ int main(void)
       }
     }
 
+    // Update water movement
+    UpdateWater(&renderContext, deltaTime);
+
     // Draw
     BeginDrawing();
     ClearBackground(RAYWHITE);
 
     DrawRectangleGradientV(0, 0, screenWidth, screenHeight, SKYBLUE, DARKBLUE);
 
-    // Draw grid for reference
     BeginMode3D(camera);
+    // Draw grid for reference
     rlEnableDepthMask();
     rlDisableBackfaceCulling();
     rlEnableDepthTest();
     DrawGrid(20, 1.0f);
-    EndMode3D();
 
     // Render all chunks with SSAO
     for (int x = 0; x < CHUNKS_X; x++)
@@ -320,6 +325,10 @@ int main(void)
       }
     }
 
+    // Render water last for proper transparency
+    RenderWater(&renderContext, camera, chunks[0][0].model);
+    EndMode3D();
+
     // Draw UI elements
     DrawCrosshair(screenWidth, screenHeight, WHITE);
     DrawText("Right click to dig, Left click to build", 10, 40, 20, WHITE);
@@ -333,6 +342,7 @@ int main(void)
   }
 
   // Cleanup
+  CleanupWater(&renderContext);
   CleanupRenderContext(&renderContext);
 
   // Cleanup - unload all chunk meshes and models

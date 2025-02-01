@@ -166,3 +166,151 @@ void RenderSceneWithSSAO(RenderContext *context, Camera camera, Model model)
   EndMode3D();
   EndShaderMode();
 }
+
+void InitializeWaterMesh(RenderContext *context)
+{
+  // Create a plane mesh for water
+  Mesh mesh = GenMeshPlane(WATER_SIZE, WATER_SIZE,
+                           WATER_VERTICES_PER_SIDE, WATER_VERTICES_PER_SIDE);
+
+  // Load the water shader
+  context->waterShader = LoadShader("resources/shaders/water_shader.vs",
+                                    "resources/shaders/water_shader.fs");
+
+  // Get shader locations
+  int mvpLoc = GetShaderLocation(context->waterShader, "mvp");
+  int modelLoc = GetShaderLocation(context->waterShader, "matModel");
+  int timeLoc = GetShaderLocation(context->waterShader, "time");
+  int moveFactorLoc = GetShaderLocation(context->waterShader, "moveFactor");
+  int lightPosLoc = GetShaderLocation(context->waterShader, "lightPos");
+  int viewPosLoc = GetShaderLocation(context->waterShader, "viewPos");
+  int lightColorLoc = GetShaderLocation(context->waterShader, "lightColor");
+  int waveHeightLoc = GetShaderLocation(context->waterShader, "waveHeight");
+
+  // Set initial uniform values
+  float lightPos[3] = {100.0f, 100.0f, 100.0f};
+  float lightColor[3] = {1.0f, 1.0f, 0.9f};
+  float waveHeight = 5.0f; // Increased wave height
+  SetShaderValue(context->waterShader, lightPosLoc, lightPos, SHADER_UNIFORM_VEC3);
+  SetShaderValue(context->waterShader, lightColorLoc, lightColor, SHADER_UNIFORM_VEC3);
+  SetShaderValue(context->waterShader, waveHeightLoc, &waveHeight, SHADER_UNIFORM_FLOAT);
+
+  // Load water textures
+  context->waterNormalMap = LoadTexture("resources/textures/water_normal.png");
+  context->waterDuDvMap = LoadTexture("resources/textures/water_dudv.png");
+  SetTextureFilter(context->waterNormalMap, TEXTURE_FILTER_BILINEAR);
+  SetTextureFilter(context->waterDuDvMap, TEXTURE_FILTER_BILINEAR);
+
+  // Create the water model
+  context->waterMesh = LoadModelFromMesh(mesh);
+  context->waterMesh.materials[0].shader = context->waterShader;
+
+  // Initialize reflection and refraction buffers
+  context->reflectionBuffer = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+  context->refractionBuffer = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
+
+  // Initialize water movement factor
+  context->waterMoveFactor = 0.0f;
+}
+
+void UpdateWater(RenderContext *context, float deltaTime)
+{
+  static float time = 0.0f;
+  time += deltaTime * 3.0f; // Increased animation speed
+
+  // Update water movement factor for wave animation
+  context->waterMoveFactor += 0.1f * deltaTime; // Increased movement speed
+  if (context->waterMoveFactor >= 1.0f)
+  {
+    context->waterMoveFactor = 0.0f;
+  }
+
+  // Update shader uniforms
+  SetShaderValue(context->waterShader, GetShaderLocation(context->waterShader, "moveFactor"),
+                 &context->waterMoveFactor, SHADER_UNIFORM_FLOAT);
+  SetShaderValue(context->waterShader, GetShaderLocation(context->waterShader, "time"),
+                 &time, SHADER_UNIFORM_FLOAT);
+}
+
+void RenderWater(RenderContext *context, Camera camera, Model terrain)
+{
+  // Store current camera position
+  Vector3 cameraPos = camera.position;
+
+  // Render reflection (camera below water plane)
+  camera.position.y = -camera.position.y + 2.0f * WATER_HEIGHT;
+  camera.target.y = -camera.target.y + 2.0f * WATER_HEIGHT;
+  camera.up.y = -camera.up.y;
+
+  BeginTextureMode(context->reflectionBuffer);
+  ClearBackground(SKYBLUE); // Changed from RAYWHITE to match sky color
+  BeginMode3D(camera);
+  DrawModel(terrain, (Vector3){0, 0, 0}, 1.0f, WHITE);
+  EndMode3D();
+  EndTextureMode();
+
+  // Reset camera
+  camera.position = cameraPos;
+  camera.target.y = -camera.target.y + 2.0f * WATER_HEIGHT;
+  camera.up.y = -camera.up.y;
+
+  // Render refraction
+  BeginTextureMode(context->refractionBuffer);
+  ClearBackground(SKYBLUE); // Changed from RAYWHITE to match sky color
+  BeginMode3D(camera);
+  DrawModel(terrain, (Vector3){0, 0, 0}, 1.0f, WHITE);
+  EndMode3D();
+  EndTextureMode();
+
+  // Update view position in shader
+  float viewPos[3] = {camera.position.x, camera.position.y, camera.position.z};
+  SetShaderValue(context->waterShader, GetShaderLocation(context->waterShader, "viewPos"),
+                 viewPos, SHADER_UNIFORM_VEC3);
+
+  // Calculate and set MVP matrix
+  Matrix matProjection = MatrixPerspective(camera.fovy * DEG2RAD,
+                                           (float)GetScreenWidth() / (float)GetScreenHeight(),
+                                           0.1f, 1000.0f);
+  Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
+  Matrix matModel = MatrixTranslate(0.0f, WATER_HEIGHT, 0.0f);
+  Matrix mvp = MatrixMultiply(MatrixMultiply(matModel, matView), matProjection);
+
+  SetShaderValueMatrix(context->waterShader, GetShaderLocation(context->waterShader, "mvp"), mvp);
+  SetShaderValueMatrix(context->waterShader, GetShaderLocation(context->waterShader, "matModel"), matModel);
+
+  // Bind textures
+  SetShaderValueTexture(context->waterShader,
+                        GetShaderLocation(context->waterShader, "reflectionTexture"),
+                        context->reflectionBuffer.texture);
+  SetShaderValueTexture(context->waterShader,
+                        GetShaderLocation(context->waterShader, "refractionTexture"),
+                        context->refractionBuffer.texture);
+  SetShaderValueTexture(context->waterShader,
+                        GetShaderLocation(context->waterShader, "normalMap"),
+                        context->waterNormalMap);
+  SetShaderValueTexture(context->waterShader,
+                        GetShaderLocation(context->waterShader, "dudvMap"),
+                        context->waterDuDvMap);
+
+  // Set up blending for water transparency
+  rlEnableDepthTest();
+  BeginBlendMode(BLEND_ALPHA);
+
+  // Draw water plane
+  BeginMode3D(camera);
+  DrawModel(context->waterMesh, (Vector3){0, WATER_HEIGHT, 0}, 1.0f, WHITE);
+  EndMode3D();
+
+  // Reset blend mode
+  EndBlendMode();
+}
+
+void CleanupWater(RenderContext *context)
+{
+  UnloadTexture(context->waterNormalMap);
+  UnloadTexture(context->waterDuDvMap);
+  UnloadShader(context->waterShader);
+  UnloadModel(context->waterMesh);
+  UnloadRenderTexture(context->reflectionBuffer);
+  UnloadRenderTexture(context->refractionBuffer);
+}
