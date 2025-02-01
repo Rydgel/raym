@@ -487,62 +487,37 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
     mesh.texcoords[i * 2 + 1] = triangles[i].z * 0.1f;
   }
 
-  // Calculate normals with double precision for better accuracy
-  for (int i = 0; i < totalTriangles; i++)
+  // Calculate normals for each triangle
+  for (int i = 0; i < mesh.triangleCount; i++)
   {
-    Vector3 v1 = triangles[i * 3];
-    Vector3 v2 = triangles[i * 3 + 1];
-    Vector3 v3 = triangles[i * 3 + 2];
+    Vector3 v1 = (Vector3){
+        mesh.vertices[i * 9],
+        mesh.vertices[i * 9 + 1],
+        mesh.vertices[i * 9 + 2]};
+    Vector3 v2 = (Vector3){
+        mesh.vertices[i * 9 + 3],
+        mesh.vertices[i * 9 + 4],
+        mesh.vertices[i * 9 + 5]};
+    Vector3 v3 = (Vector3){
+        mesh.vertices[i * 9 + 6],
+        mesh.vertices[i * 9 + 7],
+        mesh.vertices[i * 9 + 8]};
 
-    // Use double precision for the calculations
+    // Calculate triangle normal
     Vector3 edge1 = Vector3Subtract(v2, v1);
     Vector3 edge2 = Vector3Subtract(v3, v1);
-    Vector3 normal = Vector3CrossProduct(edge1, edge2);
+    Vector3 normal = Vector3Normalize(Vector3CrossProduct(edge1, edge2));
 
-    // Ensure the normal is not zero
-    if (Vector3Length(normal) > 1e-6f)
-    {
-      normal = Vector3Normalize(normal);
-    }
-    else
-    {
-      normal = (Vector3){0.0f, 1.0f, 0.0f}; // Default normal if degenerate
-    }
-
-    // Accumulate normals for each vertex
+    // Assign normal to all three vertices of the triangle
     for (int j = 0; j < 3; j++)
     {
-      int idx = (i * 3 + j) * 3;
-      mesh.normals[idx] += normal.x;
-      mesh.normals[idx + 1] += normal.y;
-      mesh.normals[idx + 2] += normal.z;
+      mesh.normals[(i * 3 + j) * 3] = normal.x;
+      mesh.normals[(i * 3 + j) * 3 + 1] = normal.y;
+      mesh.normals[(i * 3 + j) * 3 + 2] = normal.z;
     }
   }
 
-  // Normalize accumulated normals
-  for (int i = 0; i < mesh.vertexCount; i++)
-  {
-    Vector3 normal = {
-        mesh.normals[i * 3],
-        mesh.normals[i * 3 + 1],
-        mesh.normals[i * 3 + 2]};
-
-    float len = Vector3Length(normal);
-    if (len > 1e-6f)
-    {
-      normal = Vector3Scale(normal, 1.0f / len);
-    }
-    else
-    {
-      normal = (Vector3){0.0f, 1.0f, 0.0f}; // Default normal if degenerate
-    }
-
-    mesh.normals[i * 3] = normal.x;
-    mesh.normals[i * 3 + 1] = normal.y;
-    mesh.normals[i * 3 + 2] = normal.z;
-  }
-
-  // Clean up temporary storage
+  // Free temporary triangle data
   RL_FREE(triangles);
 
   // Upload mesh to GPU

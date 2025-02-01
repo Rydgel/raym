@@ -12,12 +12,17 @@
 #define LOW_HEIGHT -15.0f
 #define HIGH_HEIGHT 15.0f
 #define EDIT_RADIUS 10.0f
-#define EDIT_STRENGTH 0.5f
+#define EDIT_STRENGTH 0.3f
 #define RAY_STEP 0.1f
 #define MAX_RAY_DISTANCE 100.0f
 #define CROSSHAIR_SIZE 10
 #define CROSSHAIR_THICKNESS 2
 #define MESH_UPDATE_DELAY 0.01f
+
+// Camera settings
+#define CAMERA_MOVE_SPEED 30.0f
+#define CAMERA_FAST_MOVE_SPEED 100.0f
+#define CAMERA_MOUSE_SENSITIVITY 0.003f
 
 extern ChunkData chunks[CHUNKS_X][CHUNKS_Z];
 
@@ -154,9 +159,39 @@ int main(void)
         EnableCursor();
     }
 
-    // Update camera only when cursor is locked
+    // Custom camera update with speed controls
     if (cursorLocked)
-      UpdateCamera(&camera, CAMERA_FREE);
+    {
+      Vector2 mouseDelta = GetMouseDelta();
+      Vector3 moveVec = {0};
+      float moveSpeed = IsKeyDown(KEY_LEFT_SHIFT) ? CAMERA_FAST_MOVE_SPEED : CAMERA_MOVE_SPEED;
+      moveSpeed *= deltaTime;
+
+      // Apply mouse movement
+      UpdateCameraPro(&camera,
+                      (Vector3){0, 0, 0},
+                      (Vector3){mouseDelta.x * CAMERA_MOUSE_SENSITIVITY * RAD2DEG,
+                                mouseDelta.y * CAMERA_MOUSE_SENSITIVITY * RAD2DEG,
+                                0},
+                      0);
+
+      // Calculate movement vector
+      if (IsKeyDown(KEY_W))
+        moveVec.x += moveSpeed;
+      if (IsKeyDown(KEY_S))
+        moveVec.x -= moveSpeed;
+      if (IsKeyDown(KEY_D))
+        moveVec.y += moveSpeed;
+      if (IsKeyDown(KEY_A))
+        moveVec.y -= moveSpeed;
+      if (IsKeyDown(KEY_SPACE))
+        moveVec.z += moveSpeed;
+      if (IsKeyDown(KEY_LEFT_CONTROL))
+        moveVec.z -= moveSpeed;
+
+      // Apply movement
+      UpdateCameraPro(&camera, moveVec, (Vector3){0, 0, 0}, 0);
+    }
 
     // Handle terrain modification
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
