@@ -1,6 +1,7 @@
 #include "marching_cubes.h"
 #include "chunk.h"
 #include <stdlib.h>
+#include <string.h>
 
 // Edge table for marching cubes
 static const int edgeTable[256] =
@@ -300,14 +301,19 @@ static const int triTable[256][16] =
 // Function to interpolate between two vertices
 Vector3 VertexInterp(float isolevel, Vector3 p1, Vector3 p2, float v1, float v2)
 {
-  if (fabsf(isolevel - v1) < 0.00001f)
+  // Handle edge cases more robustly
+  const float epsilon = 1e-6f;
+  if (fabsf(isolevel - v1) < epsilon)
     return p1;
-  if (fabsf(isolevel - v2) < 0.00001f)
+  if (fabsf(isolevel - v2) < epsilon)
     return p2;
-  if (fabsf(v1 - v2) < 0.00001f)
+  if (fabsf(v1 - v2) < epsilon)
     return p1;
 
+  // Clamp mu to [0,1] to prevent any potential overflow
   float mu = (isolevel - v1) / (v2 - v1);
+  mu = mu < 0.0f ? 0.0f : (mu > 1.0f ? 1.0f : mu);
+
   Vector3 p = {
       p1.x + mu * (p2.x - p1.x),
       p1.y + mu * (p2.y - p1.y),
@@ -321,62 +327,69 @@ int GenerateTriangles(Vector3 *vertices, Vector3 *triangles, float *cornerValues
   int cubeIndex = 0;
   Vector3 vertList[12];
 
-  // Determine cube index
-  if (cornerValues[0] < SURFACE_THRESHOLD)
-    cubeIndex |= 1;
-  if (cornerValues[1] < SURFACE_THRESHOLD)
-    cubeIndex |= 2;
-  if (cornerValues[2] < SURFACE_THRESHOLD)
-    cubeIndex |= 4;
-  if (cornerValues[3] < SURFACE_THRESHOLD)
-    cubeIndex |= 8;
-  if (cornerValues[4] < SURFACE_THRESHOLD)
-    cubeIndex |= 16;
-  if (cornerValues[5] < SURFACE_THRESHOLD)
-    cubeIndex |= 32;
-  if (cornerValues[6] < SURFACE_THRESHOLD)
-    cubeIndex |= 64;
-  if (cornerValues[7] < SURFACE_THRESHOLD)
-    cubeIndex |= 128;
+  // Initialize vertList to prevent any undefined behavior
+  for (int i = 0; i < 12; i++)
+  {
+    vertList[i] = (Vector3){0.0f, 0.0f, 0.0f};
+  }
+
+  // Determine cube index with explicit comparisons
+  for (int i = 0; i < 8; i++)
+  {
+    if (cornerValues[i] < SURFACE_THRESHOLD)
+    {
+      cubeIndex |= (1 << i);
+    }
+  }
 
   // Cube is entirely inside/outside surface
   if (edgeTable[cubeIndex] == 0)
     return 0;
 
   // Find vertices where surface intersects cube
-  if (edgeTable[cubeIndex] & 1)
-    vertList[0] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[0], cornerPositions[1], cornerValues[0], cornerValues[1]);
-  if (edgeTable[cubeIndex] & 2)
-    vertList[1] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[1], cornerPositions[2], cornerValues[1], cornerValues[2]);
-  if (edgeTable[cubeIndex] & 4)
-    vertList[2] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[2], cornerPositions[3], cornerValues[2], cornerValues[3]);
-  if (edgeTable[cubeIndex] & 8)
-    vertList[3] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[3], cornerPositions[0], cornerValues[3], cornerValues[0]);
-  if (edgeTable[cubeIndex] & 16)
-    vertList[4] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[4], cornerPositions[5], cornerValues[4], cornerValues[5]);
-  if (edgeTable[cubeIndex] & 32)
-    vertList[5] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[5], cornerPositions[6], cornerValues[5], cornerValues[6]);
-  if (edgeTable[cubeIndex] & 64)
-    vertList[6] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[6], cornerPositions[7], cornerValues[6], cornerValues[7]);
-  if (edgeTable[cubeIndex] & 128)
-    vertList[7] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[7], cornerPositions[4], cornerValues[7], cornerValues[4]);
-  if (edgeTable[cubeIndex] & 256)
-    vertList[8] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[0], cornerPositions[4], cornerValues[0], cornerValues[4]);
-  if (edgeTable[cubeIndex] & 512)
-    vertList[9] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[1], cornerPositions[5], cornerValues[1], cornerValues[5]);
-  if (edgeTable[cubeIndex] & 1024)
-    vertList[10] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[2], cornerPositions[6], cornerValues[2], cornerValues[6]);
-  if (edgeTable[cubeIndex] & 2048)
-    vertList[11] = VertexInterp(SURFACE_THRESHOLD, cornerPositions[3], cornerPositions[7], cornerValues[3], cornerValues[7]);
+  // Use a lookup table to map edge index to vertex indices
+  static const int edgeToVerts[12][2] = {
+      {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+
+  for (int edge = 0; edge < 12; edge++)
+  {
+    if (edgeTable[cubeIndex] & (1 << edge))
+    {
+      int v1 = edgeToVerts[edge][0];
+      int v2 = edgeToVerts[edge][1];
+      vertList[edge] = VertexInterp(SURFACE_THRESHOLD,
+                                    cornerPositions[v1],
+                                    cornerPositions[v2],
+                                    cornerValues[v1],
+                                    cornerValues[v2]);
+    }
+  }
 
   // Create triangles
   int numTriangles = 0;
   for (int i = 0; triTable[cubeIndex][i] != -1; i += 3)
   {
-    triangles[numTriangles * 3] = vertList[triTable[cubeIndex][i]];
-    triangles[numTriangles * 3 + 1] = vertList[triTable[cubeIndex][i + 1]];
-    triangles[numTriangles * 3 + 2] = vertList[triTable[cubeIndex][i + 2]];
-    numTriangles++;
+    // Validate indices before using them
+    int idx1 = triTable[cubeIndex][i];
+    int idx2 = triTable[cubeIndex][i + 1];
+    int idx3 = triTable[cubeIndex][i + 2];
+
+    if (idx1 >= 0 && idx1 < 12 && idx2 >= 0 && idx2 < 12 && idx3 >= 0 && idx3 < 12)
+    {
+      if (vertices != NULL)
+      {
+        vertices[numTriangles * 3] = vertList[idx1];
+        vertices[numTriangles * 3 + 1] = vertList[idx2];
+        vertices[numTriangles * 3 + 2] = vertList[idx3];
+      }
+      if (triangles != NULL)
+      {
+        triangles[numTriangles * 3] = vertList[idx1];
+        triangles[numTriangles * 3 + 1] = vertList[idx2];
+        triangles[numTriangles * 3 + 2] = vertList[idx3];
+      }
+      numTriangles++;
+    }
   }
 
   return numTriangles;
@@ -386,8 +399,8 @@ int GenerateTriangles(Vector3 *vertices, Vector3 *triangles, float *cornerValues
 Mesh GenerateChunkMesh(const Chunk *chunk)
 {
   // Pre-allocate maximum possible vertices and triangles
-  const int maxTriangles = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 5; // Approximate max triangles per cube
-  Vector3 *triangles = (Vector3 *)RL_MALLOC(maxTriangles * 3 * sizeof(Vector3));
+  const int maxTriangles = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 5;            // Approximate max triangles per cube
+  Vector3 *triangles = (Vector3 *)RL_CALLOC(maxTriangles * 3, sizeof(Vector3)); // Use CALLOC to ensure zero initialization
   int totalTriangles = 0;
 
   // Process each cube in the chunk
@@ -400,6 +413,11 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
         float cornerValues[8];
         Vector3 cornerPositions[8];
 
+        // Get corner values and positions with bounds checking
+        if (x < 0 || x >= CHUNK_SIZE - 1 || y < 0 || y >= CHUNK_SIZE - 1 ||
+            z < 0 || z >= CHUNK_SIZE - 1)
+          continue;
+
         // Get corner values and positions
         cornerValues[0] = chunk->voxels[x][y][z].density;
         cornerValues[1] = chunk->voxels[x + 1][y][z].density;
@@ -411,19 +429,23 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
         cornerValues[7] = chunk->voxels[x][y + 1][z + 1].density;
 
         // Set corner positions in local chunk space
-        cornerPositions[0] = (Vector3){x * VOXEL_SIZE, y * VOXEL_SIZE, z * VOXEL_SIZE};
-        cornerPositions[1] = (Vector3){(x + 1) * VOXEL_SIZE, y * VOXEL_SIZE, z * VOXEL_SIZE};
-        cornerPositions[2] = (Vector3){(x + 1) * VOXEL_SIZE, y * VOXEL_SIZE, (z + 1) * VOXEL_SIZE};
-        cornerPositions[3] = (Vector3){x * VOXEL_SIZE, y * VOXEL_SIZE, (z + 1) * VOXEL_SIZE};
-        cornerPositions[4] = (Vector3){x * VOXEL_SIZE, (y + 1) * VOXEL_SIZE, z * VOXEL_SIZE};
-        cornerPositions[5] = (Vector3){(x + 1) * VOXEL_SIZE, (y + 1) * VOXEL_SIZE, z * VOXEL_SIZE};
-        cornerPositions[6] = (Vector3){(x + 1) * VOXEL_SIZE, (y + 1) * VOXEL_SIZE, (z + 1) * VOXEL_SIZE};
-        cornerPositions[7] = (Vector3){x * VOXEL_SIZE, (y + 1) * VOXEL_SIZE, (z + 1) * VOXEL_SIZE};
+        const float vsize = VOXEL_SIZE;
+        cornerPositions[0] = (Vector3){x * vsize, y * vsize, z * vsize};
+        cornerPositions[1] = (Vector3){(x + 1) * vsize, y * vsize, z * vsize};
+        cornerPositions[2] = (Vector3){(x + 1) * vsize, y * vsize, (z + 1) * vsize};
+        cornerPositions[3] = (Vector3){x * vsize, y * vsize, (z + 1) * vsize};
+        cornerPositions[4] = (Vector3){x * vsize, (y + 1) * vsize, z * vsize};
+        cornerPositions[5] = (Vector3){(x + 1) * vsize, (y + 1) * vsize, z * vsize};
+        cornerPositions[6] = (Vector3){(x + 1) * vsize, (y + 1) * vsize, (z + 1) * vsize};
+        cornerPositions[7] = (Vector3){x * vsize, (y + 1) * vsize, (z + 1) * vsize};
 
         // Generate triangles for this cube
-        int numTriangles = GenerateTriangles(NULL, &triangles[totalTriangles * 3],
-                                             cornerValues, cornerPositions);
-        totalTriangles += numTriangles;
+        if (totalTriangles < maxTriangles - 5)
+        { // Ensure we don't overflow
+          int numTriangles = GenerateTriangles(NULL, &triangles[totalTriangles * 3],
+                                               cornerValues, cornerPositions);
+          totalTriangles += numTriangles;
+        }
       }
     }
   }
@@ -433,51 +455,91 @@ Mesh GenerateChunkMesh(const Chunk *chunk)
   mesh.triangleCount = totalTriangles;
   mesh.vertexCount = totalTriangles * 3;
 
-  // Set vertex positions
-  mesh.vertices = (float *)RL_MALLOC(mesh.vertexCount * 3 * sizeof(float));
+  // Allocate and initialize mesh data
+  mesh.vertices = (float *)RL_CALLOC(mesh.vertexCount * 3, sizeof(float));
+  mesh.indices = (unsigned short *)RL_CALLOC(mesh.vertexCount, sizeof(unsigned short));
+  mesh.texcoords = (float *)RL_CALLOC(mesh.vertexCount * 2, sizeof(float));
+  mesh.normals = (float *)RL_CALLOC(mesh.vertexCount * 3, sizeof(float));
+
+  if (!mesh.vertices || !mesh.indices || !mesh.texcoords || !mesh.normals)
+  {
+    // Handle allocation failure
+    if (mesh.vertices)
+      RL_FREE(mesh.vertices);
+    if (mesh.indices)
+      RL_FREE(mesh.indices);
+    if (mesh.texcoords)
+      RL_FREE(mesh.texcoords);
+    if (mesh.normals)
+      RL_FREE(mesh.normals);
+    RL_FREE(triangles);
+    return (Mesh){0};
+  }
+
+  // Copy vertex data
   for (int i = 0; i < mesh.vertexCount; i++)
   {
-    // Store vertices in local chunk space
     mesh.vertices[i * 3] = triangles[i].x;
     mesh.vertices[i * 3 + 1] = triangles[i].y;
     mesh.vertices[i * 3 + 2] = triangles[i].z;
-  }
-
-  // Set indices for triangle faces
-  mesh.indices = (unsigned short *)RL_MALLOC(mesh.vertexCount * sizeof(unsigned short));
-  for (int i = 0; i < mesh.vertexCount; i++)
-  {
     mesh.indices[i] = i;
+    mesh.texcoords[i * 2] = triangles[i].x * 0.1f;
+    mesh.texcoords[i * 2 + 1] = triangles[i].z * 0.1f;
   }
 
-  // Set texture coordinates
-  mesh.texcoords = (float *)RL_MALLOC(mesh.vertexCount * 2 * sizeof(float));
-  for (int i = 0; i < mesh.vertexCount; i++)
-  {
-    // Project vertices onto XZ plane for texture coordinates
-    mesh.texcoords[i * 2] = triangles[i].x * 0.1f;     // U coordinate
-    mesh.texcoords[i * 2 + 1] = triangles[i].z * 0.1f; // V coordinate
-  }
-
-  // Set normals
-  mesh.normals = (float *)RL_MALLOC(mesh.vertexCount * 3 * sizeof(float));
+  // Calculate normals with double precision for better accuracy
   for (int i = 0; i < totalTriangles; i++)
   {
     Vector3 v1 = triangles[i * 3];
     Vector3 v2 = triangles[i * 3 + 1];
     Vector3 v3 = triangles[i * 3 + 2];
 
-    Vector3 normal = Vector3Normalize(Vector3CrossProduct(
-        Vector3Subtract(v2, v1),
-        Vector3Subtract(v3, v1)));
+    // Use double precision for the calculations
+    Vector3 edge1 = Vector3Subtract(v2, v1);
+    Vector3 edge2 = Vector3Subtract(v3, v1);
+    Vector3 normal = Vector3CrossProduct(edge1, edge2);
 
-    // Assign same normal to all three vertices of the triangle
+    // Ensure the normal is not zero
+    if (Vector3Length(normal) > 1e-6f)
+    {
+      normal = Vector3Normalize(normal);
+    }
+    else
+    {
+      normal = (Vector3){0.0f, 1.0f, 0.0f}; // Default normal if degenerate
+    }
+
+    // Accumulate normals for each vertex
     for (int j = 0; j < 3; j++)
     {
-      mesh.normals[(i * 3 + j) * 3] = normal.x;
-      mesh.normals[(i * 3 + j) * 3 + 1] = normal.y;
-      mesh.normals[(i * 3 + j) * 3 + 2] = normal.z;
+      int idx = (i * 3 + j) * 3;
+      mesh.normals[idx] += normal.x;
+      mesh.normals[idx + 1] += normal.y;
+      mesh.normals[idx + 2] += normal.z;
     }
+  }
+
+  // Normalize accumulated normals
+  for (int i = 0; i < mesh.vertexCount; i++)
+  {
+    Vector3 normal = {
+        mesh.normals[i * 3],
+        mesh.normals[i * 3 + 1],
+        mesh.normals[i * 3 + 2]};
+
+    float len = Vector3Length(normal);
+    if (len > 1e-6f)
+    {
+      normal = Vector3Scale(normal, 1.0f / len);
+    }
+    else
+    {
+      normal = (Vector3){0.0f, 1.0f, 0.0f}; // Default normal if degenerate
+    }
+
+    mesh.normals[i * 3] = normal.x;
+    mesh.normals[i * 3 + 1] = normal.y;
+    mesh.normals[i * 3 + 2] = normal.z;
   }
 
   // Clean up temporary storage

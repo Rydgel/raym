@@ -11,8 +11,8 @@
 // Add color gradient settings
 #define LOW_HEIGHT -15.0f
 #define HIGH_HEIGHT 15.0f
-#define EDIT_RADIUS 15.0f
-#define EDIT_STRENGTH 1.0f
+#define EDIT_RADIUS 10.0f
+#define EDIT_STRENGTH 0.5f
 #define RAY_STEP 0.1f
 #define MAX_RAY_DISTANCE 100.0f
 #define CROSSHAIR_SIZE 10
