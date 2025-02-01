@@ -33,7 +33,7 @@ void main()
     for(int i = 0; i < 16; i++)
     {
         // Get sample position with increased radius
-        vec3 samplePos = position + (samples[i] * radius * 2.0);  // Doubled radius for more pronounced effect
+        vec3 samplePos = position + (samples[i] * radius * 1.0);  // Reduced from 2.0 to 1.0 for softer effect
         
         // Project sample position
         vec4 offset = vec4(samplePos, 1.0);
@@ -59,7 +59,7 @@ void main()
     
     // Normalize and enhance the occlusion effect
     occlusion = occlusion / max(totalWeight, 0.00001);
-    occlusion = pow(1.0 - occlusion, 2.0);  // Increased contrast
+    occlusion = pow(1.0 - occlusion, 1.5);  // Reduced from 2.0 to 1.5 for less contrast
     
     // Output enhanced occlusion factor
     fragColor = occlusion;

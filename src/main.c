@@ -119,6 +119,8 @@ int main(void)
 
             height -= 8.0f; // Lower the base level
             float density = worldPos.y - height;
+            // Make density binary (-1 or 1) for blocky terrain
+            density = density <= 0.0f ? -1.0f : 1.0f;
             chunks[x][z].chunk.voxels[vx][vy][vz].density = density;
 
             // Track height range

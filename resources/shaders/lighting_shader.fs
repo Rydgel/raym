@@ -56,17 +56,17 @@ void main()
     
     // Get ambient occlusion factor with enhanced effect
     float ao = texture(ssaoMap, fragTexCoord).r;
-    ao = pow(ao, 1.5);  // Enhance AO contrast
+    ao = pow(ao, 1.2);  // Reduced from 1.5 to 1.2 for softer AO contrast
     
     // Ambient light with enhanced AO
-    float ambientStrength = 0.6;  // Increased for better visibility of AO
+    float ambientStrength = 0.5;  // Reduced from 0.6 for more balanced lighting
     vec3 ambient = ambientStrength * lightColor * ao;
     
     // Enhanced rim lighting
     float rim = getRimLight(normal, viewDir) * ao;  // Modulate rim light by AO
-    vec3 rimColor = vec3(1.0) * rim * 0.4;  // Increased rim intensity
+    vec3 rimColor = vec3(1.0) * rim * 0.3;  // Reduced from 0.4 for softer rim effect
     
     // Final color with enhanced AO effect
-    vec3 result = (ambient + diffuse * mix(0.8, 1.0, ao)) * objectColor + rimColor;
+    vec3 result = (ambient + diffuse * mix(0.9, 1.0, ao)) * objectColor + rimColor;  // Reduced AO influence on diffuse
     finalColor = vec4(result, 1.0);
 } 

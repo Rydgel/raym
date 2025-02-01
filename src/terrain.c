@@ -108,9 +108,42 @@ void ModifyTerrain(Vector3 position, float radius, float strength)
 
             if (distSq <= radiusSq)
             {
-              float influence = (1.0f - sqrtf(distSq) / radius) * strength;
-              chunks[cx][cz].chunk.voxels[x][y][z].density += influence;
-              chunkModified = true;
+              // Calculate horizontal distance (ignoring Y component)
+              Vector3 horizontalDiff = {
+                  voxelPos.x - position.x,
+                  0,
+                  voxelPos.z - position.z};
+              float horizontalDistSq = Vector3LengthSqr(horizontalDiff);
+
+              // Calculate vertical distance and direction
+              float verticalDist = voxelPos.y - position.y;
+              float verticalFactor = 1.0f - (fabsf(verticalDist) / radius);
+
+              // Calculate horizontal falloff (smoother transition at edges)
+              float horizontalFactor = 1.0f - (sqrtf(horizontalDistSq) / radius);
+
+              // Calculate base influence that only affects vertical movement
+              float influence = 0;
+
+              if (strength > 0)
+              {
+                // Pull up: stronger effect above the point, weaker below
+                influence = verticalFactor * horizontalFactor * 0.05f * strength;
+                influence *= (verticalDist >= 0) ? 1.2f : 0.8f;
+              }
+              else
+              {
+                // Push down: stronger effect below the point, weaker above
+                influence = verticalFactor * horizontalFactor * 0.05f * strength;
+                influence *= (verticalDist <= 0) ? 1.2f : 0.8f;
+              }
+
+              // Apply influence only if it's significant enough
+              if (fabsf(influence) > 0.001f)
+              {
+                chunks[cx][cz].chunk.voxels[x][y][z].density += influence;
+                chunkModified = true;
+              }
             }
           }
         }
