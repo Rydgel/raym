@@ -45,6 +45,13 @@ int main(void)
   camera.fovy = 45.0f;
   camera.projection = CAMERA_PERSPECTIVE;
 
+  // Initialize render context with SSAO
+  RenderContext renderContext = InitializeRenderContext(screenWidth, screenHeight);
+
+  // Material setup (simplified as most settings moved to RenderContext)
+  Material material = LoadMaterialDefault();
+  material.shader = renderContext.lightingShader; // Use the shader from render context
+
   // Initialize chunks
   float globalMinHeight = 1000.0f;
   float globalMaxHeight = -1000.0f;
@@ -124,35 +131,13 @@ int main(void)
       if (chunks[x][z].minHeight < globalMinHeight)
         globalMinHeight = chunks[x][z].minHeight;
 
-      // Generate mesh for this chunk
+      // Generate mesh and create model for this chunk
       chunks[x][z].mesh = GenerateChunkMesh(&chunks[x][z].chunk);
+      chunks[x][z].model = LoadModelFromMesh(chunks[x][z].mesh);
+      chunks[x][z].model.materials[0] = material;
       chunks[x][z].initialized = true;
     }
   }
-
-  // Material and shader setup
-  Shader lightingShader = LoadShader("resources/shaders/lighting_shader.vs", "resources/shaders/lighting_shader.fs");
-  Material material = LoadMaterialDefault();
-  material.shader = lightingShader;
-
-  // Set shader locations
-  Vector3 lowColor = (Vector3){0.1f, 0.4f, 0.05f};  // Brighter green for valleys
-  Vector3 midColor = (Vector3){0.25f, 0.5f, 0.1f};  // Even more vibrant green for hills
-  Vector3 highColor = (Vector3){0.3f, 0.25f, 0.1f}; // Less brown for peaks
-
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "lowColor"), (float[3]){lowColor.x, lowColor.y, lowColor.z}, SHADER_UNIFORM_VEC3);
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "midColor"), (float[3]){midColor.x, midColor.y, midColor.z}, SHADER_UNIFORM_VEC3);
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "highColor"), (float[3]){highColor.x, highColor.y, highColor.z}, SHADER_UNIFORM_VEC3);
-
-  // Adjust height range to make color transitions more natural
-  float heightRange = globalMaxHeight - globalMinHeight;
-  float adjustedMin = globalMinHeight + (heightRange * 0.05f); // Start green colors very early
-  float adjustedMax = globalMaxHeight - (heightRange * 0.4f);  // End brown colors much lower
-
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "minHeight"), (float[1]){adjustedMin}, SHADER_UNIFORM_FLOAT);
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "maxHeight"), (float[1]){adjustedMax}, SHADER_UNIFORM_FLOAT);
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "lightColor"), (float[3]){1.0f, 1.0f, 1.0f}, SHADER_UNIFORM_VEC3);
-  SetShaderValue(material.shader, GetShaderLocation(material.shader, "lightPos"), (float[3]){50.0f, 50.0f, 50.0f}, SHADER_UNIFORM_VEC3);
 
   // Main game loop
   while (!WindowShouldClose())
@@ -236,7 +221,6 @@ int main(void)
       {
         if (chunks[x][z].needsUpdate)
         {
-          // If we're still modifying, only update after delay
           if (isModifying)
           {
             chunks[x][z].updateTimer += deltaTime;
@@ -244,9 +228,25 @@ int main(void)
               continue;
           }
 
+          // Update mesh and model
           UnloadMesh(chunks[x][z].mesh);
           chunks[x][z].mesh = GenerateChunkMesh(&chunks[x][z].chunk);
-          UploadMesh(&chunks[x][z].mesh, false);
+
+          // Update the model's mesh data directly
+          chunks[x][z].model.meshes[0].vertexCount = chunks[x][z].mesh.vertexCount;
+          chunks[x][z].model.meshes[0].triangleCount = chunks[x][z].mesh.triangleCount;
+          chunks[x][z].model.meshes[0].vertices = chunks[x][z].mesh.vertices;
+          chunks[x][z].model.meshes[0].indices = chunks[x][z].mesh.indices;
+          chunks[x][z].model.meshes[0].normals = chunks[x][z].mesh.normals;
+
+          // Upload the new mesh data to GPU
+          UpdateMeshBuffer(chunks[x][z].model.meshes[0], 0, chunks[x][z].mesh.vertices,
+                           chunks[x][z].mesh.vertexCount * 3 * sizeof(float), 0);
+          UpdateMeshBuffer(chunks[x][z].model.meshes[0], 1, chunks[x][z].mesh.normals,
+                           chunks[x][z].mesh.vertexCount * 3 * sizeof(float), 0);
+          UpdateMeshBuffer(chunks[x][z].model.meshes[0], 6, chunks[x][z].mesh.indices,
+                           chunks[x][z].mesh.triangleCount * 3 * sizeof(unsigned short), 0);
+
           chunks[x][z].needsUpdate = false;
           chunks[x][z].updateTimer = 0.0f;
         }
@@ -259,45 +259,46 @@ int main(void)
 
     DrawRectangleGradientV(0, 0, screenWidth, screenHeight, SKYBLUE, DARKBLUE);
 
-    BeginMode3D(camera);
     // Draw grid for reference
-    rlEnableDepthMask();        // Enable depth buffer writing
-    rlDisableBackfaceCulling(); // Disable backface culling for better terrain visibility
-    rlEnableDepthTest();        // Enable depth testing
+    BeginMode3D(camera);
+    rlEnableDepthMask();
+    rlDisableBackfaceCulling();
+    rlEnableDepthTest();
     DrawGrid(20, 1.0f);
+    EndMode3D();
 
-    // Draw all chunk meshes
+    // Render all chunks with SSAO
     for (int x = 0; x < CHUNKS_X; x++)
     {
       for (int z = 0; z < CHUNKS_Z; z++)
       {
         if (chunks[x][z].initialized)
         {
-          Matrix transform = MatrixTranslate(
+          chunks[x][z].model.transform = MatrixTranslate(
               chunks[x][z].chunk.position.x,
               chunks[x][z].chunk.position.y,
               chunks[x][z].chunk.position.z);
-          DrawMesh(chunks[x][z].mesh, material, transform);
+          RenderSceneWithSSAO(&renderContext, camera, chunks[x][z].model);
         }
       }
     }
 
-    EndMode3D();
-
-    // Draw crosshair
+    // Draw UI elements
     DrawCrosshair(screenWidth, screenHeight, WHITE);
-
-    // Draw UI with corrected text
     DrawText("Right click to dig, Left click to build", 10, 40, 20, WHITE);
     DrawFPS(10, 10);
+
     EndDrawing();
 
     // Update shader view position
-    SetShaderValue(material.shader, GetShaderLocation(material.shader, "viewPos"),
+    SetShaderValue(renderContext.lightingShader, GetShaderLocation(renderContext.lightingShader, "viewPos"),
                    (float[3]){camera.position.x, camera.position.y, camera.position.z}, SHADER_UNIFORM_VEC3);
   }
 
-  // Cleanup - unload all chunk meshes
+  // Cleanup
+  CleanupRenderContext(&renderContext);
+
+  // Cleanup - unload all chunk meshes and models
   for (int x = 0; x < CHUNKS_X; x++)
   {
     for (int z = 0; z < CHUNKS_Z; z++)
@@ -305,9 +306,14 @@ int main(void)
       if (chunks[x][z].initialized)
       {
         UnloadMesh(chunks[x][z].mesh);
+        chunks[x][z].model.materials[0] = (Material){0}; // Clear material before unload
+        UnloadModel(chunks[x][z].model);
       }
     }
   }
+
+  // Unload shared material last
+  UnloadMaterial(material);
 
   CloseWindow();
   return EXIT_SUCCESS;

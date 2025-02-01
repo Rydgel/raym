@@ -23,6 +23,7 @@ typedef struct
 {
   Chunk chunk;
   Mesh mesh;
+  Model model;
   bool initialized;
   bool needsUpdate;
   float updateTimer;

@@ -3,6 +3,7 @@
 // Input vertex attributes (from vertex shader)
 in vec3 fragPosition;
 in vec3 fragNormal;
+in vec2 fragTexCoord;
 
 // Input uniform values
 uniform vec3 lowColor;    // For valleys
@@ -13,6 +14,7 @@ uniform float maxHeight;
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 uniform vec3 lightColor;
+uniform sampler2D ssaoMap;  // SSAO texture
 
 // Output fragment color
 out vec4 finalColor;
@@ -48,19 +50,23 @@ void main()
     vec3 lightDir = normalize(lightPos - fragPosition);
     float diff = max(dot(normal, lightDir), 0.0);
     
-    // Quantize diffuse lighting into 3 bands
+    // Quantize diffuse lighting into 4 bands
     diff = cellShade(diff, 4);
     vec3 diffuse = diff * lightColor;
     
-    // Ambient light
-    float ambientStrength = 0.4; // Increased for more cartoon-like look
-    vec3 ambient = ambientStrength * lightColor;
+    // Get ambient occlusion factor with enhanced effect
+    float ao = texture(ssaoMap, fragTexCoord).r;
+    ao = pow(ao, 1.5);  // Enhance AO contrast
     
-    // Rim lighting
-    float rim = getRimLight(normal, viewDir);
-    vec3 rimColor = vec3(1.0) * rim * 0.3;
+    // Ambient light with enhanced AO
+    float ambientStrength = 0.6;  // Increased for better visibility of AO
+    vec3 ambient = ambientStrength * lightColor * ao;
     
-    // Final color with cell shading
-    vec3 result = (ambient + diffuse) * objectColor + rimColor;
+    // Enhanced rim lighting
+    float rim = getRimLight(normal, viewDir) * ao;  // Modulate rim light by AO
+    vec3 rimColor = vec3(1.0) * rim * 0.4;  // Increased rim intensity
+    
+    // Final color with enhanced AO effect
+    vec3 result = (ambient + diffuse * mix(0.8, 1.0, ao)) * objectColor + rimColor;
     finalColor = vec4(result, 1.0);
 } 
