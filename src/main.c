@@ -218,8 +218,8 @@ int main(void)
   // Weather system - particle system for rain and snow
   Particle particles[MAX_PARTICLES] = {0};
   bool weatherActive = true;
-  float weatherIntensity = 0.0f;
-  int weatherType = 0; // 0 = clear, 1 = rain, 2 = snow
+  float weatherIntensity = 1.0f; // Start with maximum intensity
+  int weatherType = 1;           // Force rain (1 = rain, 0 = clear, 2 = snow)
   float weatherChangeTimer = 0.0f;
 
   // Initialize particles
@@ -333,6 +333,20 @@ int main(void)
     if (IsKeyPressed(KEY_K))
     {
       weatherActive = !weatherActive;
+
+      // If weather is being activated, ensure there's some weather effect
+      if (weatherActive && weatherType == 0)
+      {
+        weatherType = 1;         // Set to rain when activating if currently clear
+        weatherIntensity = 0.5f; // Start with medium intensity
+      }
+    }
+
+    // Cycle through weather types with L key
+    if (IsKeyPressed(KEY_L) && weatherActive)
+    {
+      weatherType = (weatherType + 1) % 3;                 // Cycle between 0 (clear), 1 (rain), and 2 (snow)
+      weatherIntensity = (weatherType == 0) ? 0.0f : 0.7f; // Set appropriate intensity
     }
 
     // Toggle help screen with H key
@@ -411,9 +425,10 @@ int main(void)
     }
 
     // Create new particles based on weather type and intensity
-    if (weatherIntensity > 0.0f)
+    if (weatherIntensity > 0.0f && weatherType > 0)
     {
-      int particlesPerFrame = (int)(weatherIntensity * 10.0f);
+      // Force a higher number of particles per frame for better visibility
+      int particlesPerFrame = 20; // Fixed number instead of based on intensity
 
       for (int i = 0; i < particlesPerFrame; i++)
       {
@@ -425,7 +440,7 @@ int main(void)
             // Position the particle randomly around the camera
             float offsetX = ((float)GetRandomValue(0, 1000) / 1000.0f - 0.5f) * PARTICLE_AREA_SIZE;
             float offsetZ = ((float)GetRandomValue(0, 1000) / 1000.0f - 0.5f) * PARTICLE_AREA_SIZE;
-            float height = 50.0f; // Start high above the camera
+            float height = 30.0f; // Start closer to the camera (was 50.0f)
 
             particles[j].position = (Vector3){
                 camera.position.x + offsetX,
@@ -437,9 +452,14 @@ int main(void)
             {
               // Rain - falls straight down quickly
               particles[j].velocity = (Vector3){0.0f, -25.0f, 0.0f};
-              particles[j].color = (Color){150, 150, 255, 200};
-              particles[j].size = 0.2f;
-              particles[j].lifetime = 2.0f;
+              particles[j].color = (Color){100, 100, 255, 255}; // Bright blue with full opacity
+              particles[j].size = 0.5f;                         // Much larger size
+              particles[j].lifetime = 3.0f;                     // Longer lifetime
+
+              // Activate the particle
+              particles[j].age = 0.0f;
+              particles[j].active = true;
+              break;
             }
             else if (weatherType == 2)
             {
@@ -685,30 +705,80 @@ int main(void)
     }
 
     // Render weather particles
-    for (int i = 0; i < MAX_PARTICLES; i++)
+    if (weatherIntensity > 0.0f)
     {
-      if (particles[i].active)
-      {
-        if (weatherType == 1)
-        {
-          // Rain - draw as lines
-          Vector3 rainEnd = Vector3Add(
-              particles[i].position,
-              Vector3Scale(particles[i].velocity, 0.04f));
+      // Set up rendering state for particles
+      rlDisableDepthMask();           // Disable depth writes
+      rlDisableBackfaceCulling();     // Disable backface culling
+      rlSetBlendMode(RL_BLEND_ALPHA); // Enable alpha blending
 
-          DrawLine3D(particles[i].position, rainEnd, particles[i].color);
-        }
-        else if (weatherType == 2)
+      for (int i = 0; i < MAX_PARTICLES; i++)
+      {
+        if (particles[i].active)
         {
-          // Snow - draw as points/small spheres
-          DrawPoint3D(particles[i].position, particles[i].color);
+          if (weatherType == 1)
+          {
+            // Rain - draw as cubes instead of lines
+            Vector3 rainEnd = Vector3Add(
+                particles[i].position,
+                Vector3Scale(particles[i].velocity, 0.2f));
+
+            // Draw a cube for each rain particle
+            DrawCube(particles[i].position, 0.5f, 0.5f, 0.5f, particles[i].color);
+            DrawCube(rainEnd, 0.5f, 0.5f, 0.5f, particles[i].color);
+          }
+          else if (weatherType == 2)
+          {
+            // Snow - draw as cubes
+            DrawCube(particles[i].position, 0.5f, 0.5f, 0.5f, particles[i].color);
+          }
         }
       }
+
+      // Restore rendering state
+      rlEnableDepthMask();                        // Re-enable depth writes
+      rlEnableBackfaceCulling();                  // Re-enable backface culling
+      rlSetBlendMode(RL_BLEND_ALPHA_PREMULTIPLY); // Restore default blend mode
     }
 
     // Render water last for proper transparency
     RenderWater(&renderContext, camera, chunks[0][0].model);
     EndMode3D();
+
+    // Update minimap
+    UpdateMinimap(&renderContext, camera.position);
+
+    // Draw 2D rain effect on screen if weather is active
+    if (weatherActive && weatherType == 1 && weatherIntensity > 0.0f)
+    {
+      // Draw rain as 2D rectangles
+      for (int i = 0; i < 200; i++) // Draw 200 rain drops
+      {
+        // Calculate position based on time
+        float x = (float)GetRandomValue(0, screenWidth);
+        int timeOffset = (int)(GetTime() * 500) + i * 10;
+        float y = (float)(timeOffset % screenHeight);
+
+        // Draw rain drop
+        DrawRectangle((int)x, (int)y, 2, 20, (Color){150, 150, 255, 200});
+      }
+    }
+    // Draw 2D snow effect
+    else if (weatherActive && weatherType == 2 && weatherIntensity > 0.0f)
+    {
+      // Draw snow as 2D circles
+      for (int i = 0; i < 100; i++) // Draw 100 snowflakes
+      {
+        // Calculate position based on time with some horizontal drift
+        int timeOffset = (int)(GetTime() * 200) + i * 20;
+        float xOffset = sinf((float)timeOffset / 100.0f) * 50.0f;
+        int x = (int)(((i * 37) % screenWidth) + xOffset) % screenWidth;
+        int y = (timeOffset % screenHeight);
+
+        // Draw snowflake
+        DrawCircle(x, y, 3, (Color){230, 230, 255, 200});
+      }
+    }
 
     // Draw UI elements
     DrawCrosshair(screenWidth, screenHeight, WHITE);
@@ -728,7 +798,16 @@ int main(void)
                         weatherNames[weatherType],
                         weatherIntensity * 100),
              10, 160, 20, WHITE);
-    DrawText("K: Toggle weather", 10, 190, 20, WHITE);
+    DrawText("K: Toggle weather  L: Change weather type", 10, 190, 20, WHITE);
+
+    // Add debug information
+    int activeParticles = 0;
+    for (int i = 0; i < MAX_PARTICLES; i++)
+    {
+      if (particles[i].active)
+        activeParticles++;
+    }
+    DrawText(TextFormat("Active Particles: %d", activeParticles), 10, 220, 20, RED);
 
     // Draw the minimap
     // Calculate player facing angle from camera direction
