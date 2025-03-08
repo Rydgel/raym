@@ -24,6 +24,27 @@
 #define CAMERA_FAST_MOVE_SPEED 100.0f
 #define CAMERA_MOUSE_SENSITIVITY 0.003f
 
+// Day-night cycle
+#define DAY_LENGTH 60.0f   // Length of a full day in seconds
+#define MORNING_TIME 0.25f // Morning occurs at 25% of the day
+#define NOON_TIME 0.5f     // Noon occurs at 50% of the day
+#define EVENING_TIME 0.75f // Evening occurs at 75% of the day
+
+// Weather settings
+#define MAX_PARTICLES 1000
+#define PARTICLE_AREA_SIZE 100.0f
+
+typedef struct
+{
+  Vector3 position;
+  Vector3 velocity;
+  Color color;
+  float size;
+  float lifetime;
+  float age;
+  bool active;
+} Particle;
+
 extern ChunkData chunks[CHUNKS_X][CHUNKS_Z];
 
 int main(void)
@@ -36,11 +57,14 @@ int main(void)
   SetTraceLogLevel(LOG_INFO);
 
   // Initialize window
-  InitWindow(screenWidth, screenHeight, "Marching Cubes Demo");
+  InitWindow(screenWidth, screenHeight, "Enhanced Marching Cubes Demo");
 
   // Enable mouse cursor lock for camera control
   DisableCursor();
   bool cursorLocked = true;
+
+  // Help screen flag
+  bool showHelp = false;
 
   // Initialize camera
   Camera3D camera = {0};
@@ -89,10 +113,17 @@ int main(void)
 
             // Multi-octave noise for more natural terrain
             float frequency = 0.03f; // Lower frequency for larger features
-            float amplitude = 12.0f; // Increased amplitude for more height variation
+            float amplitude = 14.0f; // Increased amplitude for more height variation
             float height = -5.0f;    // Start below zero for more valleys
             int octaves = 5;         // More octaves for more detail
 
+            // Add large-scale mountain ranges
+            float mountainNoise = sin(worldPos.x * 0.01f) * cos(worldPos.z * 0.01f) * 15.0f;
+
+            // Create some ridges and valleys
+            float ridgeNoise = fabs(sin(worldPos.x * 0.03f + worldPos.z * 0.02f)) * 10.0f;
+
+            // Basic Perlin-like noise for the terrain
             for (int o = 0; o < octaves; o++)
             {
               float noiseX = worldPos.x * frequency;
@@ -106,9 +137,39 @@ int main(void)
               frequency *= 2.2f;
             }
 
+            // Create some crater-like formations
+            float craterNoise = 0.0f;
+            int numCraters = 5;
+            for (int c = 0; c < numCraters; c++)
+            {
+              // Create fixed crater positions
+              float craterX = sin(c * 1.1f) * 80.0f;
+              float craterZ = cos(c * 1.1f) * 80.0f;
+              float craterRadius = 20.0f + c * 4.0f;
+
+              // Calculate distance to crater center
+              float dx = worldPos.x - craterX;
+              float dz = worldPos.z - craterZ;
+              float distToCrater = sqrt(dx * dx + dz * dz);
+
+              // Apply crater depression based on distance
+              if (distToCrater < craterRadius)
+              {
+                float craterDepth = 12.0f;
+                float normalizedDist = distToCrater / craterRadius;
+                float craterShape = sin(normalizedDist * 3.14159f) * craterDepth;
+                craterNoise -= craterShape;
+              }
+            }
+
             // Add some random variation for smaller details
             height += sinf(worldPos.x * 0.15f + worldPos.z * 0.2f) * 4.0f;
             height += cosf(worldPos.x * 0.2f + worldPos.z * 0.15f) * 3.0f;
+
+            // Combine all terrain features
+            height += mountainNoise;
+            height += ridgeNoise * 0.5f;
+            height += craterNoise;
 
             // Make valleys more common by pushing down higher areas
             if (height > 0)
@@ -149,10 +210,98 @@ int main(void)
     }
   }
 
+  // Day-night cycle variables
+  float timeOfDay = 0.0f; // 0.0 to 1.0 representing time of day
+  bool pauseTime = false; // Pause the day-night cycle
+  float timeScale = 1.0f; // Time speed multiplier
+
+  // Weather system - particle system for rain and snow
+  Particle particles[MAX_PARTICLES] = {0};
+  bool weatherActive = true;
+  float weatherIntensity = 0.0f;
+  int weatherType = 0; // 0 = clear, 1 = rain, 2 = snow
+  float weatherChangeTimer = 0.0f;
+
+  // Initialize particles
+  for (int i = 0; i < MAX_PARTICLES; i++)
+  {
+    particles[i].active = false;
+  }
+
   // Main game loop
   while (!WindowShouldClose())
   {
     float deltaTime = GetFrameTime(); // Get time between frames
+
+    // Update time of day
+    if (!pauseTime)
+    {
+      timeOfDay += deltaTime / DAY_LENGTH * timeScale;
+      if (timeOfDay >= 1.0f)
+        timeOfDay -= 1.0f;
+    }
+
+    // Update lighting based on time of day
+    Vector3 lightPos;
+    Vector3 lightColor;
+
+    // Calculate sun position (circular path in sky)
+    float sunAngle = (timeOfDay * 2.0f * PI) - PI / 2.0f;
+    float sunHeight = sinf(sunAngle);
+    float sunDistance = 100.0f;
+
+    lightPos.x = cosf(sunAngle) * sunDistance;
+    lightPos.y = sunHeight * sunDistance;
+    lightPos.z = 0.0f;
+
+    // Calculate light color based on time of day
+    if (timeOfDay < MORNING_TIME)
+    {
+      // Night to dawn (blue to orange)
+      float t = timeOfDay / MORNING_TIME;
+      lightColor.x = 0.1f + t * 0.8f; // R: dark to bright
+      lightColor.y = 0.1f + t * 0.5f; // G: dark to medium
+      lightColor.z = 0.3f - t * 0.1f; // B: medium blue to slight blue
+    }
+    else if (timeOfDay < NOON_TIME)
+    {
+      // Morning to noon (orange to white)
+      float t = (timeOfDay - MORNING_TIME) / (NOON_TIME - MORNING_TIME);
+      lightColor.x = 0.9f + t * 0.1f; // R: bright to full
+      lightColor.y = 0.6f + t * 0.4f; // G: medium to full
+      lightColor.z = 0.2f + t * 0.8f; // B: slight to full
+    }
+    else if (timeOfDay < EVENING_TIME)
+    {
+      // Noon to evening (white to orange)
+      float t = (timeOfDay - NOON_TIME) / (EVENING_TIME - NOON_TIME);
+      lightColor.x = 1.0f;            // R: stay full
+      lightColor.y = 1.0f - t * 0.4f; // G: full to medium
+      lightColor.z = 1.0f - t * 0.8f; // B: full to slight
+    }
+    else
+    {
+      // Evening to night (orange to blue)
+      float t = (timeOfDay - EVENING_TIME) / (1.0f - EVENING_TIME);
+      lightColor.x = 1.0f - t * 0.9f; // R: full to dark
+      lightColor.y = 0.6f - t * 0.5f; // G: medium to dark
+      lightColor.z = 0.2f + t * 0.1f; // B: slight to medium blue
+    }
+
+    // Scale light intensity based on sun height (darker at night)
+    float intensity = fmaxf(0.05f, fmaxf(0.0f, sunHeight) * 0.8f + 0.2f);
+    lightColor = Vector3Scale(lightColor, intensity);
+
+    // Set shader uniforms for lighting
+    SetShaderValue(renderContext.lightingShader,
+                   GetShaderLocation(renderContext.lightingShader, "lightPos"),
+                   (float[3]){lightPos.x, lightPos.y, lightPos.z},
+                   SHADER_UNIFORM_VEC3);
+
+    SetShaderValue(renderContext.lightingShader,
+                   GetShaderLocation(renderContext.lightingShader, "lightColor"),
+                   (float[3]){lightColor.x, lightColor.y, lightColor.z},
+                   SHADER_UNIFORM_VEC3);
 
     // Toggle cursor lock with Tab key
     if (IsKeyPressed(KEY_TAB))
@@ -162,6 +311,153 @@ int main(void)
         DisableCursor();
       else
         EnableCursor();
+    }
+
+    // Toggle day-night cycle pause with P key
+    if (IsKeyPressed(KEY_P))
+    {
+      pauseTime = !pauseTime;
+    }
+
+    // Adjust time scale with [ and ] keys
+    if (IsKeyPressed(KEY_LEFT_BRACKET) && timeScale > 0.1f)
+    {
+      timeScale -= 0.5f;
+    }
+    if (IsKeyPressed(KEY_RIGHT_BRACKET))
+    {
+      timeScale += 0.5f;
+    }
+
+    // Toggle weather with K key
+    if (IsKeyPressed(KEY_K))
+    {
+      weatherActive = !weatherActive;
+    }
+
+    // Toggle help screen with H key
+    if (IsKeyPressed(KEY_H))
+    {
+      showHelp = !showHelp;
+    }
+
+    // Update weather
+    weatherChangeTimer += deltaTime;
+
+    // Decide whether to change weather every ~20 seconds
+    if (weatherChangeTimer > 20.0f)
+    {
+      weatherChangeTimer = 0.0f;
+      // Randomly change weather
+      if (GetRandomValue(0, 100) < 40)
+      { // 40% chance to change weather
+        int newWeatherType = GetRandomValue(0, 2);
+        // Don't change to the same weather type
+        if (newWeatherType != weatherType)
+        {
+          weatherType = newWeatherType;
+          weatherIntensity = 0.0f; // Start with low intensity
+        }
+      }
+    }
+
+    // Change weather intensity gradually
+    float targetIntensity = 0.0f;
+    if (weatherActive)
+    {
+      if (weatherType == 0)
+      {
+        targetIntensity = 0.0f; // Clear weather
+      }
+      else
+      {
+        targetIntensity = (float)GetRandomValue(50, 100) / 100.0f; // 0.5 to 1.0 intensity for rain/snow
+      }
+    }
+
+    // Gradually adjust intensity
+    if (weatherIntensity < targetIntensity)
+    {
+      weatherIntensity += deltaTime * 0.2f;
+      if (weatherIntensity > targetIntensity)
+        weatherIntensity = targetIntensity;
+    }
+    else if (weatherIntensity > targetIntensity)
+    {
+      weatherIntensity -= deltaTime * 0.2f;
+      if (weatherIntensity < targetIntensity)
+        weatherIntensity = targetIntensity;
+    }
+
+    // Update existing particles
+    for (int i = 0; i < MAX_PARTICLES; i++)
+    {
+      if (particles[i].active)
+      {
+        // Update position based on velocity
+        particles[i].position = Vector3Add(particles[i].position,
+                                           Vector3Scale(particles[i].velocity, deltaTime));
+
+        // Age the particle
+        particles[i].age += deltaTime;
+
+        // Check if the particle has reached its lifetime or fallen below ground
+        if (particles[i].age >= particles[i].lifetime ||
+            particles[i].position.y < 0.0f)
+        {
+          particles[i].active = false;
+        }
+      }
+    }
+
+    // Create new particles based on weather type and intensity
+    if (weatherIntensity > 0.0f)
+    {
+      int particlesPerFrame = (int)(weatherIntensity * 10.0f);
+
+      for (int i = 0; i < particlesPerFrame; i++)
+      {
+        // Find an inactive particle
+        for (int j = 0; j < MAX_PARTICLES; j++)
+        {
+          if (!particles[j].active)
+          {
+            // Position the particle randomly around the camera
+            float offsetX = ((float)GetRandomValue(0, 1000) / 1000.0f - 0.5f) * PARTICLE_AREA_SIZE;
+            float offsetZ = ((float)GetRandomValue(0, 1000) / 1000.0f - 0.5f) * PARTICLE_AREA_SIZE;
+            float height = 50.0f; // Start high above the camera
+
+            particles[j].position = (Vector3){
+                camera.position.x + offsetX,
+                camera.position.y + height,
+                camera.position.z + offsetZ};
+
+            // Set velocity based on weather type
+            if (weatherType == 1)
+            {
+              // Rain - falls straight down quickly
+              particles[j].velocity = (Vector3){0.0f, -25.0f, 0.0f};
+              particles[j].color = (Color){150, 150, 255, 200};
+              particles[j].size = 0.2f;
+              particles[j].lifetime = 2.0f;
+            }
+            else if (weatherType == 2)
+            {
+              // Snow - falls slowly and drifts
+              float driftX = ((float)GetRandomValue(0, 1000) / 1000.0f - 0.5f) * 3.0f;
+              float driftZ = ((float)GetRandomValue(0, 1000) / 1000.0f - 0.5f) * 3.0f;
+              particles[j].velocity = (Vector3){driftX, -5.0f, driftZ};
+              particles[j].color = (Color){230, 230, 255, 200};
+              particles[j].size = 0.3f;
+              particles[j].lifetime = 10.0f;
+            }
+
+            particles[j].age = 0.0f;
+            particles[j].active = true;
+            break;
+          }
+        }
+      }
     }
 
     // Custom camera update with speed controls
@@ -296,11 +592,59 @@ int main(void)
     // Update water movement
     UpdateWater(&renderContext, deltaTime);
 
+    // Update minimap
+    UpdateMinimap(&renderContext, camera.position);
+
+    // Calculate sky colors based on time of day
+    Color skyTop, skyBottom;
+
+    if (timeOfDay < MORNING_TIME)
+    {
+      // Night to dawn
+      float t = timeOfDay / MORNING_TIME;
+      skyTop = (Color){5 + t * 20, 5 + t * 30, 20 + t * 60, 255};
+      skyBottom = (Color){10 + t * 60, 10 + t * 40, 30 + t * 20, 255};
+    }
+    else if (timeOfDay < NOON_TIME)
+    {
+      // Morning to noon
+      float t = (timeOfDay - MORNING_TIME) / (NOON_TIME - MORNING_TIME);
+      skyTop = (Color){25 + t * 75, 35 + t * 125, 80 + t * 140, 255};
+      skyBottom = (Color){70 + t * 130, 50 + t * 150, 50 + t * 150, 255};
+    }
+    else if (timeOfDay < EVENING_TIME)
+    {
+      // Noon to evening
+      float t = (timeOfDay - NOON_TIME) / (EVENING_TIME - NOON_TIME);
+      skyTop = (Color){100 - t * 20, 160 - t * 120, 220 - t * 100, 255};
+      skyBottom = (Color){200 - t * 100, 200 - t * 100, 200 - t * 50, 255};
+    }
+    else
+    {
+      // Evening to night
+      float t = (timeOfDay - EVENING_TIME) / (1.0f - EVENING_TIME);
+      skyTop = (Color){80 - t * 75, 40 - t * 35, 120 - t * 100, 255};
+      skyBottom = (Color){100 - t * 90, 100 - t * 90, 150 - t * 120, 255};
+    }
+
+    // Make sky darker if it's raining
+    if (weatherType == 1 && weatherIntensity > 0.0f)
+    {
+      float darkFactor = 1.0f - weatherIntensity * 0.5f;
+      skyTop.r = (unsigned char)(skyTop.r * darkFactor);
+      skyTop.g = (unsigned char)(skyTop.g * darkFactor);
+      skyTop.b = (unsigned char)(skyTop.b * darkFactor);
+      skyBottom.r = (unsigned char)(skyBottom.r * darkFactor);
+      skyBottom.g = (unsigned char)(skyBottom.g * darkFactor);
+      skyBottom.b = (unsigned char)(skyBottom.b * darkFactor);
+    }
+
     // Draw
     BeginDrawing();
     ClearBackground(RAYWHITE);
 
-    DrawRectangleGradientV(0, 0, screenWidth, screenHeight, SKYBLUE, DARKBLUE);
+    // Draw sky gradient
+    DrawRectangleGradientV(0, 0, screenWidth, screenHeight, skyTop, skyBottom);
 
     BeginMode3D(camera);
     // Draw grid for reference
@@ -325,6 +669,43 @@ int main(void)
       }
     }
 
+    // Draw sun/moon in the sky
+    Vector3 celestialBodyPos = Vector3Scale(Vector3Normalize(lightPos), 50.0f);
+    celestialBodyPos = Vector3Add(camera.position, celestialBodyPos);
+
+    if (sunHeight > 0)
+    {
+      // Draw sun during day
+      DrawSphere(celestialBodyPos, 3.0f, (Color){255, 255, 200, 255});
+    }
+    else
+    {
+      // Draw moon during night
+      DrawSphere(celestialBodyPos, 2.0f, (Color){220, 220, 255, 255});
+    }
+
+    // Render weather particles
+    for (int i = 0; i < MAX_PARTICLES; i++)
+    {
+      if (particles[i].active)
+      {
+        if (weatherType == 1)
+        {
+          // Rain - draw as lines
+          Vector3 rainEnd = Vector3Add(
+              particles[i].position,
+              Vector3Scale(particles[i].velocity, 0.04f));
+
+          DrawLine3D(particles[i].position, rainEnd, particles[i].color);
+        }
+        else if (weatherType == 2)
+        {
+          // Snow - draw as points/small spheres
+          DrawPoint3D(particles[i].position, particles[i].color);
+        }
+      }
+    }
+
     // Render water last for proper transparency
     RenderWater(&renderContext, camera, chunks[0][0].model);
     EndMode3D();
@@ -332,6 +713,90 @@ int main(void)
     // Draw UI elements
     DrawCrosshair(screenWidth, screenHeight, WHITE);
     DrawText("Right click to dig, Left click to build", 10, 40, 20, WHITE);
+    DrawText(TextFormat("Time: %s (%.2f)",
+                        timeOfDay < 0.25f ? "Night" : timeOfDay < 0.5f ? "Morning"
+                                                  : timeOfDay < 0.75f  ? "Day"
+                                                                       : "Evening",
+                        timeOfDay),
+             10, 70, 20, WHITE);
+    DrawText(TextFormat("Time Speed: %.1fx %s", timeScale, pauseTime ? "[PAUSED]" : ""), 10, 100, 20, WHITE);
+    DrawText("P: Pause time  [ ]: Adjust speed", 10, 130, 20, WHITE);
+
+    // Display weather information
+    const char *weatherNames[] = {"Clear", "Rain", "Snow"};
+    DrawText(TextFormat("Weather: %s (%.0f%%)",
+                        weatherNames[weatherType],
+                        weatherIntensity * 100),
+             10, 160, 20, WHITE);
+    DrawText("K: Toggle weather", 10, 190, 20, WHITE);
+
+    // Draw the minimap
+    // Calculate player facing angle from camera direction
+    Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+    float playerAngle = atan2f(forward.z, forward.x);
+    DrawMinimap(&renderContext, camera.position, playerAngle, lightPos, screenWidth, screenHeight);
+
+    // Display help screen if active
+    if (showHelp)
+    {
+      // Draw semi-transparent background
+      DrawRectangle(screenWidth / 2 - 300, screenHeight / 2 - 250, 600, 500, (Color){0, 0, 0, 200});
+
+      // Draw help title
+      DrawText("ENHANCED MARCHING CUBES DEMO - CONTROLS", screenWidth / 2 - 280, screenHeight / 2 - 230, 20, WHITE);
+
+      // Draw control information
+      int y = screenHeight / 2 - 190;
+      int spacing = 25;
+
+      DrawText("Movement:", screenWidth / 2 - 280, y, 18, YELLOW);
+      y += spacing;
+      DrawText("- WASD: Move camera", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- SPACE/CTRL: Move up/down", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- SHIFT: Move faster", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- TAB: Toggle mouse lock", screenWidth / 2 - 260, y, 16, WHITE);
+      y += 2 * spacing;
+
+      DrawText("Terrain Editing:", screenWidth / 2 - 280, y, 18, YELLOW);
+      y += spacing;
+      DrawText("- LEFT MOUSE: Dig terrain", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- RIGHT MOUSE: Build terrain", screenWidth / 2 - 260, y, 16, WHITE);
+      y += 2 * spacing;
+
+      DrawText("Time & Weather:", screenWidth / 2 - 280, y, 18, YELLOW);
+      y += spacing;
+      DrawText("- P: Pause time cycle", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- [ ]: Adjust time speed", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- K: Toggle weather effects", screenWidth / 2 - 260, y, 16, WHITE);
+      y += 2 * spacing;
+
+      DrawText("Features:", screenWidth / 2 - 280, y, 18, YELLOW);
+      y += spacing;
+      DrawText("- Dynamic day/night cycle", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- Weather system (rain, snow)", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- Realistic water with reflections", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- Minimap navigation", screenWidth / 2 - 260, y, 16, WHITE);
+      y += spacing;
+      DrawText("- Terrain editing", screenWidth / 2 - 260, y, 16, WHITE);
+      y += 2 * spacing;
+
+      DrawText("Press H to close this help screen", screenWidth / 2 - 150, y, 16, GREEN);
+    }
+    else
+    {
+      // Show help hint
+      DrawText("Press H for help", 10, screenHeight - 30, 20, GREEN);
+    }
+
     DrawFPS(10, 10);
 
     EndDrawing();

@@ -6,14 +6,34 @@ in vec3 fragNormal;
 in vec2 fragTexCoord;
 
 // Input uniform values
-uniform vec3 lowColor;    // For valleys
-uniform vec3 midColor;    // For hills
-uniform vec3 highColor;   // For peaks
-uniform float minHeight;
-uniform float maxHeight;
+// Biome color values
+uniform vec3 deepWaterColor;
+uniform vec3 shallowWaterColor;
+uniform vec3 sandColor;
+uniform vec3 grassColor;
+uniform vec3 forestColor;
+uniform vec3 rockColor;
+uniform vec3 snowColor;
+
+// Height thresholds for different terrain types
+uniform float waterLevel;
+uniform float shallowWaterLevel;
+uniform float sandLevel;
+uniform float grassLevel;
+uniform float forestLevel;
+uniform float rockLevel;
+uniform float snowLevel;
+
+// Blending factor for transitions
+uniform float blendFactor;
+
+// Lighting parameters
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 uniform vec3 lightColor;
+uniform float ambientStrength;
+uniform float specularStrength;
+uniform float shininess;
 uniform sampler2D ssaoMap;  // SSAO texture
 
 // Output fragment color
@@ -60,24 +80,86 @@ float fbm(vec2 p) {
     return value;
 }
 
-vec3 getGrassColor(vec2 pos, float height) {
-    float n = fbm(pos * 3.0);  // Reduced scale for smoother variation
-    vec3 grassDark = vec3(0.2, 0.5, 0.1);
-    vec3 grassLight = vec3(0.45, 0.75, 0.2);
-    return mix(grassDark, grassLight, n);
+// Add variation to colors based on position
+vec3 applyVariation(vec3 baseColor, vec2 pos, float variationAmount) {
+    float n = fbm(pos * 3.0);
+    return mix(baseColor * (1.0 - variationAmount * 0.5), baseColor * (1.0 + variationAmount * 0.5), n);
 }
 
-vec3 getRockColor(vec2 pos, float height) {
-    float n = fbm(pos * 4.0);  // Base variation
-    float detail = fbm(pos * 8.0) * 0.5;  // Finer detail
-    vec3 rockDark = vec3(0.35, 0.25, 0.15);   // Darker brown
-    vec3 rockLight = vec3(0.6, 0.45, 0.35);    // Lighter brown
-    return mix(rockDark, rockLight, n + detail * 0.3);
+// Smooth transition between two colors based on a parameter t
+vec3 smoothBlend(vec3 color1, vec3 color2, float t, float transitionWidth) {
+    float smoothT = smoothstep(0.0, transitionWidth, t);
+    return mix(color1, color2, smoothT);
 }
 
-vec3 getSnowColor(vec2 pos) {
-    float n = fbm(pos * 5.0) * 0.15 + 0.85;  // Even more subtle variation for snow
-    return vec3(n);
+// Get terrain color based on height and slope
+vec3 getTerrainColor(float height, float slope, vec2 pos) {
+    // Add some noise to the height to create more variation
+    float heightNoise = fbm(pos * 0.05) * 1.5;
+    float adjustedHeight = height + heightNoise;
+    
+    // Apply slope factor (steeper areas tend to be more rocky)
+    float slopeFactor = 1.0 - slope; // 0 for flat terrain, 1 for vertical
+    
+    // Blend between different terrain types based on height
+    vec3 color;
+    
+    // Apply variation to each base color
+    vec3 deepWater = applyVariation(deepWaterColor, pos, 0.1);
+    vec3 shallowWater = applyVariation(shallowWaterColor, pos, 0.2);
+    vec3 sand = applyVariation(sandColor, pos, 0.3);
+    vec3 grass = applyVariation(grassColor, pos, 0.4);
+    vec3 forest = applyVariation(forestColor, pos, 0.3);
+    vec3 rock = applyVariation(rockColor, pos, 0.5);
+    vec3 snow = applyVariation(snowColor, pos, 0.1);
+
+    // Calculate transition zones with smooth blending
+    if (adjustedHeight < waterLevel) {
+        // Deep water
+        color = deepWater;
+    } 
+    else if (adjustedHeight < shallowWaterLevel) {
+        // Transition from deep to shallow water
+        float t = (adjustedHeight - waterLevel) / (shallowWaterLevel - waterLevel);
+        color = smoothBlend(deepWater, shallowWater, t, blendFactor);
+    }
+    else if (adjustedHeight < sandLevel) {
+        // Transition from shallow water to sand
+        float t = (adjustedHeight - shallowWaterLevel) / (sandLevel - shallowWaterLevel);
+        color = smoothBlend(shallowWater, sand, t, blendFactor);
+    }
+    else if (adjustedHeight < grassLevel) {
+        // Transition from sand to grass
+        float t = (adjustedHeight - sandLevel) / (grassLevel - sandLevel);
+        color = smoothBlend(sand, grass, t, blendFactor);
+    }
+    else if (adjustedHeight < forestLevel) {
+        // Transition from grass to forest
+        float t = (adjustedHeight - grassLevel) / (forestLevel - grassLevel);
+        color = smoothBlend(grass, forest, t, blendFactor);
+    }
+    else if (adjustedHeight < rockLevel) {
+        // Transition from forest to rock
+        float t = (adjustedHeight - forestLevel) / (rockLevel - forestLevel);
+        
+        // Rocky areas appear more on steeper slopes
+        float rockInfluence = mix(t, 1.0, slopeFactor * 0.7);
+        color = smoothBlend(forest, rock, rockInfluence, blendFactor);
+    }
+    else if (adjustedHeight < snowLevel) {
+        // Transition from rock to snow
+        float t = (adjustedHeight - rockLevel) / (snowLevel - rockLevel);
+        
+        // Snow appears less on very steep slopes
+        float snowInfluence = mix(t, t * 0.3, slopeFactor * 0.9);
+        color = smoothBlend(rock, snow, snowInfluence, blendFactor);
+    }
+    else {
+        // Snow on peaks
+        color = snow;
+    }
+    
+    return color;
 }
 
 // Cell shading functions
@@ -97,55 +179,48 @@ void main()
     vec3 normal = normalize(fragNormal);
     vec3 viewDir = normalize(viewPos - fragPosition);
     
-    // Calculate height factor (0.0 to 1.0)
-    float heightFactor = clamp((fragPosition.y - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
+    // Calculate slope factor (1.0 for flat terrain, 0.0 for vertical)
+    float slopeFactor = max(0.0, dot(normal, vec3(0.0, 1.0, 0.0)));
     
-    // Calculate slope factor
-    float slopeFactor = dot(normal, vec3(0.0, 1.0, 0.0));
+    // Get terrain color based on height, slope, and position
+    vec3 objectColor = getTerrainColor(fragPosition.y, slopeFactor, fragPosition.xz);
     
-    // Get procedural colors
-    vec3 grassTex = getGrassColor(fragPosition.xz, heightFactor);
-    vec3 rockTex = getRockColor(fragPosition.xz, heightFactor);
-    vec3 snowTex = getSnowColor(fragPosition.xz);
-    
-    // Blend based on height and slope
-    vec3 objectColor;
-    if (heightFactor > 0.85) {  // Increased from 0.75 to 0.85
-        // Snow only on very high peaks
-        float snowBlend = smoothstep(0.85, 0.95, heightFactor) * smoothstep(0.4, 0.8, slopeFactor);  // Steeper slope requirement
-        objectColor = mix(rockTex, snowTex, snowBlend);
-    } else if (heightFactor > 0.45) {
-        // Rock on steep slopes and higher elevations
-        float rockBlend = smoothstep(0.45, 0.75, heightFactor) + (1.0 - smoothstep(0.3, 0.6, slopeFactor));
-        rockBlend = clamp(rockBlend, 0.0, 1.0);
-        objectColor = mix(grassTex, rockTex, rockBlend);
-    } else {
-        // Grass in lower areas
-        objectColor = grassTex;
-    }
-    
-    // Calculate cell-shaded lighting
+    // Calculate lighting vectors
     vec3 lightDir = normalize(lightPos - fragPosition);
     float diff = max(dot(normal, lightDir), 0.0);
     
-    // Quantize diffuse lighting into 3 bands instead of 4 for softer transitions
-    diff = cellShade(diff, 3);
+    // Calculate specular reflection (Blinn-Phong)
+    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfwayDir), 0.0), shininess);
+    
+    // Apply cell shading to diffuse lighting (4 bands for better definition)
+    diff = cellShade(diff, 4);
+    
+    // Calculate final lighting components
+    vec3 ambient = ambientStrength * lightColor;
     vec3 diffuse = diff * lightColor;
+    vec3 specular = specularStrength * spec * lightColor;
     
-    // Get ambient occlusion factor with softer effect
+    // Add rim lighting effect
+    float rim = getRimLight(normal, viewDir);
+    vec3 rimColor = vec3(0.8, 0.8, 1.0) * rim * 0.2;
+    
+    // Get ambient occlusion factor 
     float ao = texture(ssaoMap, fragTexCoord).r;
-    ao = pow(ao, 1.1);  // Slightly increased contrast
-    ao = max(0.35, ao);  // Slightly darker minimum AO
     
-    // Reduced ambient light
-    float ambientStrength = 0.55;  // Decreased from 0.65
-    vec3 ambient = ambientStrength * lightColor * ao;
+    // Apply ambient occlusion to ambient light
+    ambient *= mix(0.5, 1.0, ao);
     
-    // Softer rim lighting
-    float rim = getRimLight(normal, viewDir) * ao;
-    vec3 rimColor = vec3(1.0) * rim * 0.2;  // Reduced from 0.25
+    // Calculate time of day impact (handled by lightColor from application)
     
-    // Final color with slightly darker result
-    vec3 result = (ambient + diffuse * mix(0.9, 1.0, ao)) * objectColor + rimColor;
+    // Final color calculation
+    vec3 result = (ambient + diffuse) * objectColor + specular + rimColor;
+    
+    // Apply a subtle atmosphere fog effect for distant objects
+    float fogFactor = exp(-0.0005 * length(fragPosition - viewPos));
+    vec3 fogColor = lightColor * 0.5; // Adjusts with time of day
+    
+    result = mix(fogColor, result, fogFactor);
+    
     finalColor = vec4(result, 1.0);
 } 

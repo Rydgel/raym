@@ -14,6 +14,11 @@
 #define WATER_HEIGHT 5.0f
 #define WATER_SIZE 500.0f
 
+// Minimap configuration
+#define MINIMAP_SIZE 150
+#define MINIMAP_BORDER 2
+#define MINIMAP_SCALE 2.0f
+
 typedef struct
 {
   RenderTexture2D gBuffer;          // G-buffer for position, normal, and depth
@@ -28,6 +33,9 @@ typedef struct
   Texture2D waterNormalMap;         // Normal map for water
   Texture2D waterDuDvMap;           // Distortion map for water
   float waterMoveFactor;            // Water movement factor
+  RenderTexture2D minimapTexture;   // Minimap texture
+  bool minimapInitialized;          // Whether minimap has been generated
+  int minimapUpdateCounter;         // Counter for minimap updates
 } RenderContext;
 
 // Function declarations for rendering
@@ -42,5 +50,10 @@ void InitializeWaterMesh(RenderContext *context);
 void UpdateWater(RenderContext *context, float deltaTime);
 void RenderWater(RenderContext *context, Camera camera, Model terrain);
 void CleanupWater(RenderContext *context);
+
+// Minimap-related functions
+void GenerateMinimap(RenderContext *context);
+void UpdateMinimap(RenderContext *context, Vector3 playerPos);
+void DrawMinimap(RenderContext *context, Vector3 playerPos, float playerAngle, Vector3 lightPos, int screenWidth, int screenHeight);
 
 #endif // RENDER_H
