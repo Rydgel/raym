@@ -667,11 +667,25 @@ int main(void)
     DrawRectangleGradientV(0, 0, screenWidth, screenHeight, skyTop, skyBottom);
 
     BeginMode3D(camera);
-    // Draw grid for reference
+
     rlEnableDepthMask();
     rlDisableBackfaceCulling();
     rlEnableDepthTest();
-    DrawGrid(20, 1.0f);
+
+    // Draw sun/moon in the sky
+    Vector3 celestialBodyPos = Vector3Scale(Vector3Normalize(lightPos), 50.0f);
+    celestialBodyPos = Vector3Add(camera.position, celestialBodyPos);
+
+    if (sunHeight > 0)
+    {
+      // Draw sun during day
+      DrawSphere(celestialBodyPos, 3.0f, (Color){255, 255, 200, 255});
+    }
+    else
+    {
+      // Draw moon during night
+      DrawSphere(celestialBodyPos, 2.0f, (Color){220, 220, 255, 255});
+    }
 
     // Render all chunks with SSAO
     for (int x = 0; x < CHUNKS_X; x++)
@@ -687,21 +701,6 @@ int main(void)
           RenderSceneWithSSAO(&renderContext, camera, chunks[x][z].model);
         }
       }
-    }
-
-    // Draw sun/moon in the sky
-    Vector3 celestialBodyPos = Vector3Scale(Vector3Normalize(lightPos), 50.0f);
-    celestialBodyPos = Vector3Add(camera.position, celestialBodyPos);
-
-    if (sunHeight > 0)
-    {
-      // Draw sun during day
-      DrawSphere(celestialBodyPos, 3.0f, (Color){255, 255, 200, 255});
-    }
-    else
-    {
-      // Draw moon during night
-      DrawSphere(celestialBodyPos, 2.0f, (Color){220, 220, 255, 255});
     }
 
     // Render weather particles
