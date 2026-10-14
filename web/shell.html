@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raym · marching cubes</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 100%; outline: none; }
+    #status {
+      position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none;
+      color: #9d968a; font: 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .08em;
+    }
+  </style>
+</head>
+<body>
+  <!-- Right click digs, so the context menu stays off. -->
+  <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+  <div id="status">booting raym…</div>
+  <script>
+    var Module = {
+      canvas: document.getElementById("canvas"),
+      setStatus: function (text) {
+        document.getElementById("status").textContent = text ? text.toLowerCase() : "";
+      },
+      // raylib logs every load step; keep only what needs attention.
+      print: function (text) { if (/WARNING|ERROR/.test(text)) console.warn(text); },
+      printErr: function (text) { console.warn(text); }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

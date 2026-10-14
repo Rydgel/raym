@@ -3,9 +3,45 @@
 #include "rlgl.h"
 #include "chunk.h"
 #include <stdlib.h>
+#include <string.h>
 
 #define CROSSHAIR_SIZE 10
 #define CROSSHAIR_THICKNESS 2
+
+#if defined(PLATFORM_WEB)
+// WebGL2 speaks GLSL ES 3.00. The shaders are written for GLSL 330 and need
+// nothing but a different header, so swap `#version 330` at load time.
+static char *ToGlslEs(const char *source)
+{
+  const char *header = "#version 300 es\nprecision highp float;\n";
+  const char *body = strstr(source, "#version 330");
+  body = body ? strchr(body, '\n') : NULL;
+  body = body ? body + 1 : source;
+  char *out = (char *)malloc(strlen(header) + strlen(body) + 1);
+  strcpy(out, header);
+  strcat(out, body);
+  return out;
+}
+#endif
+
+// Desktop loads the files as they are; the web rewrites their GLSL header.
+static Shader LoadShaderPortable(const char *vsPath, const char *fsPath)
+{
+#if defined(PLATFORM_WEB)
+  char *vs = LoadFileText(vsPath);
+  char *fs = LoadFileText(fsPath);
+  char *vsEs = ToGlslEs(vs);
+  char *fsEs = ToGlslEs(fs);
+  Shader shader = LoadShaderFromMemory(vsEs, fsEs);
+  free(vsEs);
+  free(fsEs);
+  UnloadFileText(vs);
+  UnloadFileText(fs);
+  return shader;
+#else
+  return LoadShader(vsPath, fsPath);
+#endif
+}
 
 // Helper function to generate random float between 0 and 1
 static float RandomFloat()
@@ -107,8 +143,8 @@ RenderContext InitializeRenderContext(int width, int height)
   context.ssaoBuffer = LoadRenderTexture(width, height);
 
   // Load shaders
-  context.ssaoShader = LoadShader("resources/shaders/ssao_shader.vs", "resources/shaders/ssao_shader.fs");
-  context.lightingShader = LoadShader("resources/shaders/lighting_shader.vs", "resources/shaders/lighting_shader.fs");
+  context.ssaoShader = LoadShaderPortable("resources/shaders/ssao_shader.vs", "resources/shaders/ssao_shader.fs");
+  context.lightingShader = LoadShaderPortable("resources/shaders/lighting_shader.vs", "resources/shaders/lighting_shader.fs");
 
   // Initialize SSAO kernel
   context.ssaoKernel = (Vector3 *)malloc(sizeof(Vector3) * SSAO_KERNEL_SIZE);
@@ -212,8 +248,8 @@ void InitializeWaterMesh(RenderContext *context)
                            WATER_VERTICES_PER_SIDE, WATER_VERTICES_PER_SIDE);
 
   // Load the water shader
-  context->waterShader = LoadShader("resources/shaders/water_shader.vs",
-                                    "resources/shaders/water_shader.fs");
+  context->waterShader = LoadShaderPortable("resources/shaders/water_shader.vs",
+                                            "resources/shaders/water_shader.fs");
 
   // Get shader locations
   int mvpLoc = GetShaderLocation(context->waterShader, "mvp");
