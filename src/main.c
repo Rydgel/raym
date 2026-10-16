@@ -262,7 +262,7 @@ int main(void)
     {
       if (chunks[x][z].initialized)
       {
-        UnloadMesh(chunks[x][z].mesh);
+        // UnloadModel frees the chunk's mesh too: it is the model's.
         chunks[x][z].model.materials[0] = (Material){0}; // Clear material before unload
         UnloadModel(chunks[x][z].model);
       }
@@ -642,24 +642,15 @@ static void UpdateDrawFrame(void)
             continue;
         }
 
-        // Update mesh and model
+        // The model shares the chunk's mesh, GPU buffers included. Free the
+        // old one, generate the new one (GenerateChunkMesh uploads it) and
+        // hand the model the new mesh whole: writing the new data into the
+        // old buffers overflows them, and their ids are gone once unloaded.
+        // Desktop GL hid this by reusing the freed ids; WebGL never does,
+        // so on the web the edited chunk vanished.
         UnloadMesh(chunks[x][z].mesh);
         chunks[x][z].mesh = GenerateChunkMesh(&chunks[x][z].chunk);
-
-        // Update the model's mesh data directly
-        chunks[x][z].model.meshes[0].vertexCount = chunks[x][z].mesh.vertexCount;
-        chunks[x][z].model.meshes[0].triangleCount = chunks[x][z].mesh.triangleCount;
-        chunks[x][z].model.meshes[0].vertices = chunks[x][z].mesh.vertices;
-        chunks[x][z].model.meshes[0].indices = chunks[x][z].mesh.indices;
-        chunks[x][z].model.meshes[0].normals = chunks[x][z].mesh.normals;
-
-        // Upload the new mesh data to GPU
-        UpdateMeshBuffer(chunks[x][z].model.meshes[0], 0, chunks[x][z].mesh.vertices,
-                         chunks[x][z].mesh.vertexCount * 3 * sizeof(float), 0);
-        UpdateMeshBuffer(chunks[x][z].model.meshes[0], 1, chunks[x][z].mesh.normals,
-                         chunks[x][z].mesh.vertexCount * 3 * sizeof(float), 0);
-        UpdateMeshBuffer(chunks[x][z].model.meshes[0], 6, chunks[x][z].mesh.indices,
-                         chunks[x][z].mesh.triangleCount * 3 * sizeof(unsigned short), 0);
+        chunks[x][z].model.meshes[0] = chunks[x][z].mesh;
 
         chunks[x][z].needsUpdate = false;
         chunks[x][z].updateTimer = 0.0f;
@@ -839,7 +830,7 @@ static void UpdateDrawFrame(void)
 
   // Draw UI elements
   DrawCrosshair(screenWidth, screenHeight, WHITE);
-  DrawText("Right click to dig, Left click to build", 10, 40, 20, WHITE);
+  DrawText("Left click to dig, right click to build", 10, 40, 20, WHITE);
   DrawText(TextFormat("Time: %s (%.2f)",
                       timeOfDay < 0.25f ? "Night" : timeOfDay < 0.5f ? "Morning"
                                                 : timeOfDay < 0.75f  ? "Day"
